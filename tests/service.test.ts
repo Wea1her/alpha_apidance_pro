@@ -37,8 +37,8 @@ describe('processAlphaMessage', () => {
   });
 
   it('sends starred messages when the threshold is met', async () => {
-    const send = vi.fn();
-    const analyze = vi.fn();
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+    const afterSend = vi.fn();
 
     await processAlphaMessage({
       raw: JSON.stringify({
@@ -52,25 +52,26 @@ describe('processAlphaMessage', () => {
       commonFollowStarLevels: [5, 8, 12, 15, 20],
       dedupe: new Set(),
       send,
-      analyze
+      afterSend
     });
 
     expect(send).toHaveBeenCalledTimes(1);
-    expect(analyze).not.toHaveBeenCalled();
+    expect(afterSend).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][0]).toContain('⭐⭐');
     expect(send.mock.calls[0][0]).toContain('A 关注了 B');
     expect(send.mock.calls[0][0]).toContain('https://x.com/b');
   });
 
-  it('triggers analysis on 3-star and above', async () => {
-    const send = vi.fn();
-    const analyze = vi.fn();
+  it('classifies and analyzes 1-star project events before sending', async () => {
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+    const afterSend = vi.fn();
+    const classify = vi.fn().mockResolvedValue({ allowPush: true, type: 'PROJECT', reason: '项目账号' });
 
     await processAlphaMessage({
       raw: JSON.stringify({
         channel: 'follow',
         title: 'A 关注了 B',
-        content: '用户简介:...\n你关注的12个用户也关注了ta',
+        content: '用户简介: DeFi protocol\n你关注的5个用户也关注了ta',
         link: 'https://x.com/b',
         push_at: 1778660297
       }),
@@ -78,16 +79,71 @@ describe('processAlphaMessage', () => {
       commonFollowStarLevels: [5, 8, 12, 15, 20],
       dedupe: new Set(),
       send,
-      analyze
+      classify,
+      afterSend
+    });
+
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect(classify.mock.calls[0][1]).toBe(5);
+    expect(classify.mock.calls[0][2]).toBe(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(afterSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks KOL events before sending to Telegram', async () => {
+    const send = vi.fn();
+    const afterSend = vi.fn();
+    const classify = vi.fn().mockResolvedValue({ allowPush: false, type: 'KOL', reason: '个人观点账号' });
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 B',
+        content: '用户简介: trader and researcher\n你关注的20个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660297
+      }),
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe: new Set(),
+      send,
+      classify,
+      afterSend
+    });
+
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(afterSend).not.toHaveBeenCalled();
+  });
+
+  it('pushes and analyzes when classification fails', async () => {
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+    const afterSend = vi.fn();
+    const classify = vi.fn().mockRejectedValue(new Error('classification failed'));
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 B',
+        content: '用户简介: unclear\n你关注的5个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660297
+      }),
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe: new Set(),
+      send,
+      classify,
+      afterSend
     });
 
     expect(send).toHaveBeenCalledTimes(1);
-    expect(analyze).toHaveBeenCalledTimes(1);
+    expect(afterSend).toHaveBeenCalledTimes(1);
   });
 
   it('dedupes repeated alpha events', async () => {
     const send = vi.fn();
-    const analyze = vi.fn();
+    const afterSend = vi.fn();
     const dedupe = new Set<string>();
     const input = {
       raw: JSON.stringify({
@@ -101,13 +157,13 @@ describe('processAlphaMessage', () => {
       commonFollowStarLevels: [5, 8, 12, 15, 20],
       dedupe,
       send,
-      analyze
+      afterSend
     };
 
     await processAlphaMessage(input);
     await processAlphaMessage(input);
 
     expect(send).toHaveBeenCalledTimes(1);
-    expect(analyze).toHaveBeenCalledTimes(1);
+    expect(afterSend).toHaveBeenCalledTimes(1);
   });
 });

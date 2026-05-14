@@ -12,14 +12,20 @@ import {
   extractCommonFollowCount,
   formatReceiveLatencyMessage
 } from './alpha-event.js';
+import { classifyAccount, shouldAllowClassifiedAccount } from './account-classifier.js';
 import { buildCommonFollowDecision } from './common-follow-rules.js';
 import type { ServiceConfig } from './config.js';
 import { triggerAnalysisComment } from './analysis-service.js';
 import { AnalysisTracker } from './analysis-tracker.js';
 import { DiscussionMappingStore } from './discussion-store.js';
 import { startDiscussionPoller } from './discussion-poller.js';
-import { shouldTriggerGrokAnalysis } from './grok.js';
 import { sendTelegramMessage, type TelegramSendResult } from './telegram.js';
+
+export interface ClassificationDecision {
+  allowPush: boolean;
+  type: string;
+  reason?: string;
+}
 
 export interface ProcessAlphaMessageOptions {
   raw: string;
@@ -27,7 +33,12 @@ export interface ProcessAlphaMessageOptions {
   commonFollowStarLevels: readonly number[];
   dedupe: Set<string>;
   send: (text: string) => Promise<TelegramSendResult>;
-  analyze?: (
+  classify?: (
+    message: Record<string, unknown>,
+    count: number,
+    star: number
+  ) => Promise<ClassificationDecision>;
+  afterSend?: (
     message: Record<string, unknown>,
     count: number,
     star: number,
@@ -121,6 +132,20 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
   }
   options.dedupe.add(dedupeKey);
 
+  if (options.classify) {
+    try {
+      const classification = await options.classify(message, count, decision.star);
+      const reason = classification.reason ? ` reason=${classification.reason}` : '';
+      if (!classification.allowPush) {
+        info(`账号分类拦截：type=${classification.type}${reason}`);
+        return;
+      }
+      info(`账号分类允许：type=${classification.type}${reason}`);
+    } catch (error) {
+      warn(`账号分类失败，按保守策略推送：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   const sendResult = await options.send(
     buildForwardMessage(
       message,
@@ -130,8 +155,8 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
     )
   );
 
-  if (options.analyze && shouldTriggerGrokAnalysis(decision.star)) {
-    await options.analyze(message, count, decision.star, sendResult);
+  if (options.afterSend) {
+    await options.afterSend(message, count, decision.star, sendResult);
   }
 }
 
@@ -201,7 +226,28 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
               text,
               proxyUrl: options.config.proxyUrl
             }),
-          analyze: async (
+          classify: async (message: Record<string, unknown>, count: number, star: number) => {
+            const link = messageString(message, 'link');
+            const title = messageString(message, 'title');
+            const content = messageString(message, 'content');
+            const result = await classifyAccount({
+              xaiApiKey: options.config.xaiApiKey,
+              xaiBaseUrl: options.config.xaiBaseUrl,
+              xaiModel: options.config.xaiModel,
+              proxyUrl: options.config.proxyUrl,
+              title,
+              content,
+              link,
+              count,
+              star
+            });
+            return {
+              allowPush: shouldAllowClassifiedAccount(result),
+              type: result.type,
+              reason: result.reason
+            };
+          },
+          afterSend: async (
             message: Record<string, unknown>,
             count: number,
             star: number,
