@@ -45,6 +45,18 @@ describe('account classifier', () => {
     expect(result.confidence).toBe(0.91);
   });
 
+  it('parses the first JSON object when Grok appends extra text', () => {
+    const result = parseAccountClassificationResponse(
+      '{"type":"PERSONAL","confidence":0.88,"reason":"个人构建者账号"}\n\n说明：这是个人账号。'
+    );
+
+    expect(result).toEqual({
+      type: 'PERSONAL',
+      confidence: 0.88,
+      reason: '个人构建者账号'
+    });
+  });
+
   it('rejects invalid classification responses', () => {
     expect(() => parseAccountClassificationResponse('not json')).toThrow(/无法解析账号分类/);
     expect(() =>

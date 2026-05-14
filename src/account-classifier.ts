@@ -65,7 +65,39 @@ export function buildAccountClassificationPrompt(input: AccountClassificationInp
 function extractJson(text: string): string {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  return (fenced?.[1] ?? trimmed).trim();
+  if (fenced?.[1]) return fenced[1].trim();
+
+  const start = trimmed.indexOf('{');
+  if (start === -1) return trimmed;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return trimmed.slice(start, index + 1);
+      }
+    }
+  }
+
+  return trimmed;
 }
 
 export function parseAccountClassificationResponse(text: string): AccountClassification {
