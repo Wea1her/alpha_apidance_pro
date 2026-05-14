@@ -1,0 +1,26 @@
+{
+  "name": "daxinjiankong",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "alpha:ws": "tsx src/alpha-ws-test.ts",
+    "start": "tsx src/main.ts",
+    "telegram:updates": "tsx src/telegram-updates-cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "ethers": "^6.15.0",
+    "undici": "^7.25.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
