@@ -4,3 +4,4 @@ dist/
 *.log
 .codex/
 .agents/
+.worktrees/
