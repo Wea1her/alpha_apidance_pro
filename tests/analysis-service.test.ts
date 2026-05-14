@@ -17,6 +17,7 @@ describe('triggerAnalysisComment', () => {
     const existing = { discussionChatId: '-1003769834276', analysisMessageId: 555 };
     const reply = vi.fn().mockResolvedValue({ messageId: 556, chatId: -1003769834276 });
     const analyze = vi.fn();
+    const getRugHistory = vi.fn();
 
     await triggerAnalysisComment({
       xaiApiKey: 'key',
@@ -36,10 +37,12 @@ describe('triggerAnalysisComment', () => {
       projectKey: 'b',
       existingAnalysis: existing,
       analyze,
+      getRugHistory,
       reply
     });
 
     expect(analyze).not.toHaveBeenCalled();
+    expect(getRugHistory).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith({
       botToken: 'bot',
       chatId: '-1003769834276',
@@ -62,6 +65,17 @@ describe('triggerAnalysisComment', () => {
 
     const reply = vi.fn().mockResolvedValue({ messageId: 556, chatId: -1003769834276 });
     const analyze = vi.fn().mockResolvedValue('1. 项目核心信息：test');
+    const getRugHistory = vi.fn().mockResolvedValue({
+      source: '6551',
+      available: true,
+      deletedTweetCount: 1,
+      negativeMentionCount: 2,
+      recentTweetCount: 3,
+      deletedTweetSamples: ['deleted mint'],
+      negativeMentionSamples: ['rug?'],
+      recentRiskSignals: ['recent mint'],
+      warnings: []
+    });
 
     await expect(
       triggerAnalysisComment({
@@ -80,9 +94,21 @@ describe('triggerAnalysisComment', () => {
         link: 'https://x.com/b',
         count: 12,
         star: 3,
+        twitterToken: 'twitter-token',
+        twitterApiBaseUrl: 'https://ai.6551.io',
+        getRugHistory,
         analyze,
         reply
       })
     ).resolves.toEqual({ messageId: 556, chatId: -1003769834276 });
+
+    expect(getRugHistory).toHaveBeenCalledWith({
+      link: 'https://x.com/b',
+      twitterToken: 'twitter-token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      proxyUrl: 'http://127.0.0.1:7890'
+    });
+    expect(analyze.mock.calls[0][0]).toContain('Rug 历史/风险');
+    expect(analyze.mock.calls[0][0]).toContain('deleted mint');
   });
 });

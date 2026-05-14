@@ -15,6 +15,8 @@ export interface ServiceConfig {
   xaiApiKey?: string;
   xaiBaseUrl: string;
   xaiModel: string;
+  twitterToken?: string;
+  twitterApiBaseUrl: string;
   commonFollowStarLevels: number[];
   heartbeatTimeoutMs: number;
   reconnectMinDelayMs: number;
@@ -56,6 +58,8 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     xaiApiKey: env.XAI_API_KEY?.trim() || undefined,
     xaiBaseUrl: env.XAI_BASE_URL?.trim() || 'https://api.x.ai',
     xaiModel: env.XAI_MODEL?.trim() || 'grok-4.20-fast',
+    twitterToken: env.TWITTER_TOKEN?.trim() || undefined,
+    twitterApiBaseUrl: env.TWITTER_API_BASE_URL?.trim() || 'https://ai.6551.io',
     commonFollowStarLevels: parseStarLevels(env.COMMON_FOLLOW_STAR_LEVELS),
     heartbeatTimeoutMs: parsePositiveInteger(env, 'ALPHA_HEARTBEAT_TIMEOUT_MS', 90_000),
     reconnectMinDelayMs: parsePositiveInteger(env, 'ALPHA_RECONNECT_MIN_DELAY_MS', 1_000),

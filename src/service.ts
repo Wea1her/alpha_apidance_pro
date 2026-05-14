@@ -263,6 +263,8 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
               xaiApiKey: options.config.xaiApiKey,
               xaiBaseUrl: options.config.xaiBaseUrl,
               xaiModel: options.config.xaiModel,
+              twitterToken: options.config.twitterToken,
+              twitterApiBaseUrl: options.config.twitterApiBaseUrl,
               proxyUrl: options.config.proxyUrl,
               discussionChatId: options.config.discussionChatId,
               discussionStore,

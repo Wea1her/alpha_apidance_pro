@@ -1,5 +1,6 @@
 import type { DiscussionMappingStore } from './discussion-store.js';
 import { buildGrokPrompt } from './grok.js';
+import { collectRugHistoryEvidence, type RugHistoryEvidence } from './rug-history-provider.js';
 import { replyInTelegramThread, type TelegramSendResult } from './telegram.js';
 import { requestGrokAnalysis } from './xai-client.js';
 import type { StoredAnalysis } from './analysis-tracker.js';
@@ -21,6 +22,14 @@ export interface TriggerAnalysisOptions {
   link: string;
   count: number;
   star: number;
+  twitterToken?: string;
+  twitterApiBaseUrl?: string;
+  getRugHistory?: (options: {
+    link: string;
+    twitterToken?: string;
+    twitterApiBaseUrl: string;
+    proxyUrl?: string;
+  }) => Promise<RugHistoryEvidence>;
   analyze?: (prompt: string) => Promise<string>;
   reply?: (options: {
     botToken: string;
@@ -65,12 +74,20 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
     return;
   }
 
+  const rugHistory = await (options.getRugHistory ?? collectRugHistoryEvidence)({
+    link: options.link,
+    twitterToken: options.twitterToken,
+    twitterApiBaseUrl: options.twitterApiBaseUrl ?? 'https://ai.6551.io',
+    proxyUrl: options.proxyUrl
+  });
+
   const prompt = buildGrokPrompt({
     title: options.title,
     content: options.content,
     link: options.link,
     count: options.count,
-    star: options.star
+    star: options.star,
+    rugHistory
   });
   const analysis = options.analyze
     ? await options.analyze(prompt)

@@ -31,4 +31,30 @@ describe('buildGrokPrompt', () => {
     expect(prompt).toContain('关注理由');
     expect(prompt).toContain('标签');
   });
+
+  it('includes rug history evidence when provided', () => {
+    const prompt = buildGrokPrompt({
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      rugHistory: {
+        source: '6551',
+        available: true,
+        deletedTweetCount: 2,
+        negativeMentionCount: 3,
+        recentTweetCount: 10,
+        deletedTweetSamples: ['old mint failed'],
+        negativeMentionSamples: ['@b rug?'],
+        recentRiskSignals: ['近期多次提到 mint'],
+        warnings: []
+      }
+    });
+
+    expect(prompt).toContain('Rug 历史/风险');
+    expect(prompt).toContain('删帖数量：2');
+    expect(prompt).toContain('@b rug?');
+    expect(prompt).toContain('近期多次提到 mint');
+  });
 });
