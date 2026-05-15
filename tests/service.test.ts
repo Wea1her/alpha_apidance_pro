@@ -192,4 +192,91 @@ describe('processAlphaMessage', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(afterSend).toHaveBeenCalledTimes(1);
   });
+
+  it('skips repeated project pushes when the project star level has not increased', async () => {
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+    const afterSend = vi.fn();
+    const dedupe = new Set<string>();
+    const projectStars = new Map<string, number>();
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 B',
+        content: '你关注的5个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660297
+      }),
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      send,
+      afterSend
+    });
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'C 关注了 B',
+        content: '你关注的7个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660397
+      }),
+      receivedAt: new Date(1778660398123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      send,
+      afterSend
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(afterSend).toHaveBeenCalledTimes(1);
+    expect(projectStars.get('b')).toBe(1);
+  });
+
+  it('pushes repeated projects again only when the project star level increases', async () => {
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+    const afterSend = vi.fn();
+    const dedupe = new Set<string>();
+    const projectStars = new Map<string, number>();
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 B',
+        content: '你关注的5个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660297
+      }),
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      send,
+      afterSend
+    });
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'C 关注了 B',
+        content: '你关注的8个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660397
+      }),
+      receivedAt: new Date(1778660398123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      send,
+      afterSend
+    });
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(afterSend).toHaveBeenCalledTimes(2);
+    expect(projectStars.get('b')).toBe(2);
+    expect(send.mock.calls[1][0].split('\n')[0]).toBe('检测到项目星级变化：1星 → 2星');
+  });
 });

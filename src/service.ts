@@ -32,6 +32,7 @@ export interface ProcessAlphaMessageOptions {
   receivedAt: Date;
   commonFollowStarLevels: readonly number[];
   dedupe: Set<string>;
+  projectStars?: Map<string, number>;
   send: (text: string) => Promise<TelegramSendResult>;
   classify?: (
     message: Record<string, unknown>,
@@ -69,21 +70,31 @@ function buildDedupeKey(message: Record<string, unknown>): string {
 }
 
 function parseChannelHandle(link: string): string | null {
-  const matched = link.match(/^https:\/\/x\.com\/([^/?#]+)/i);
+  const matched = link.match(/^https:\/\/(?:x|twitter)\.com\/([^/?#]+)/i);
   return matched?.[1] ?? null;
+}
+
+function buildProjectKey(message: Record<string, unknown>): string {
+  const link = messageString(message, 'link').trim();
+  const handle = parseChannelHandle(link);
+  if (handle) return handle.toLowerCase();
+  if (link) return link.toLowerCase();
+  return (messageString(message, 'title') || 'unknown').trim().toLowerCase();
 }
 
 function buildForwardMessage(
   message: Record<string, unknown>,
   count: number,
   starText: string,
-  latencyMs: number | null
+  latencyMs: number | null,
+  starChange?: { from: number; to: number }
 ): string {
   const title = messageString(message, 'title') || 'Alpha 推送';
   const content = messageString(message, 'content');
   const link = messageString(message, 'link');
   const latencyLine = latencyMs === null ? '' : `\n延迟：${(latencyMs / 1000).toFixed(3)} 秒`;
   return [
+    starChange ? `检测到项目星级变化：${starChange.from}星 → ${starChange.to}星` : '',
     `${starText} Alpha 共同关注推送`,
     '',
     title,
@@ -132,6 +143,14 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
   }
   options.dedupe.add(dedupeKey);
 
+  const projectKey = buildProjectKey(message);
+  const previousStar = options.projectStars?.get(projectKey) ?? 0;
+  if (previousStar >= decision.star) {
+    info(`项目星级未升高，跳过重复推送：project=${projectKey} previous=${previousStar} current=${decision.star}`);
+    return;
+  }
+  const starChange = previousStar > 0 ? { from: previousStar, to: decision.star } : undefined;
+
   if (options.classify) {
     try {
       const classification = await options.classify(message, count, decision.star);
@@ -151,9 +170,11 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       message,
       count,
       decision.stars,
-      calculateReceiveLatencyMs(message, options.receivedAt)
+      calculateReceiveLatencyMs(message, options.receivedAt),
+      starChange
     )
   );
+  options.projectStars?.set(projectKey, decision.star);
 
   if (options.afterSend) {
     await options.afterSend(message, count, decision.star, sendResult);
@@ -168,6 +189,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const info = options.info ?? console.info;
   const warn = options.warn ?? console.warn;
   const dedupe = new Set<string>();
+  const projectStars = new Map<string, number>();
   const analysisTracker = new AnalysisTracker();
   const wallet = new Wallet(options.config.alphaWalletPrivateKey);
   const factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
@@ -219,6 +241,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
           receivedAt,
           commonFollowStarLevels: options.config.commonFollowStarLevels,
           dedupe,
+          projectStars,
           send: (text) =>
             sendTelegramMessage({
               botToken: options.config.telegramBotToken,
