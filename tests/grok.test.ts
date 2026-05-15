@@ -47,23 +47,87 @@ describe('buildGrokPrompt', () => {
         recentTweetCount: 10,
         commentNegativeCount: 2,
         checkedTweetCount: 3,
+        negativeNoiseCount: 1,
         deletedTweetSamples: ['old mint failed'],
         negativeMentionSamples: ['@b rug?'],
         commentNegativeSamples: ['quote rug warning', '@b 无法提现'],
+        negativeNoiseSamples: ['random scam coin'],
         recentRiskSignals: ['近期多次提到 mint'],
         warnings: []
       }
     });
 
     expect(prompt).toContain('Rug 历史/风险');
+    expect(prompt).toContain('Rug 证据状态：有明确风险证据');
+    expect(prompt).toContain('Rug 结论：存在明确风险证据');
     expect(prompt).toContain('删帖数量：2');
     expect(prompt).toContain('检查推文数量：3');
     expect(prompt).toContain('评论区负面数量：2');
+    expect(prompt).toContain('负面噪声数量：1');
     expect(prompt).toContain('@b rug?');
     expect(prompt).toContain('quote rug warning');
+    expect(prompt).toContain('random scam coin');
     expect(prompt).toContain('近期多次提到 mint');
     expect(prompt).not.toContain('source');
     expect(prompt).not.toContain('数据源');
+  });
+
+  it('marks successful empty rug lookup as no direct evidence', () => {
+    const prompt = buildGrokPrompt({
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      rugHistory: {
+        source: '6551',
+        available: true,
+        deletedTweetCount: 0,
+        negativeMentionCount: 0,
+        recentTweetCount: 5,
+        commentNegativeCount: 0,
+        checkedTweetCount: 3,
+        negativeNoiseCount: 0,
+        deletedTweetSamples: [],
+        negativeMentionSamples: [],
+        commentNegativeSamples: [],
+        negativeNoiseSamples: [],
+        recentRiskSignals: [],
+        warnings: []
+      }
+    });
+
+    expect(prompt).toContain('Rug 证据状态：查询成功但无直接证据');
+    expect(prompt).toContain('Rug 结论：未发现直接证据');
+  });
+
+  it('marks unrelated negative results as low relevance noise', () => {
+    const prompt = buildGrokPrompt({
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      rugHistory: {
+        source: '6551',
+        available: true,
+        deletedTweetCount: 0,
+        negativeMentionCount: 0,
+        recentTweetCount: 5,
+        commentNegativeCount: 0,
+        checkedTweetCount: 3,
+        negativeNoiseCount: 2,
+        deletedTweetSamples: [],
+        negativeMentionSamples: [],
+        commentNegativeSamples: [],
+        negativeNoiseSamples: ['random scam coin', 'unrelated rug warning'],
+        recentRiskSignals: [],
+        warnings: []
+      }
+    });
+
+    expect(prompt).toContain('Rug 证据状态：有负面噪声但相关性不足');
+    expect(prompt).toContain('Rug 结论：有噪声但相关性不足');
   });
 
   it('uses analysis skill text for output instructions', () => {

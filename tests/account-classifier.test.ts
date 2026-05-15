@@ -22,6 +22,7 @@ describe('account classifier', () => {
     expect(prompt).toContain('PROJECT');
     expect(prompt).toContain('KOL');
     expect(prompt).toContain('MEDIA');
+    expect(prompt).toContain('DEV');
     expect(prompt).toContain('https://x.com/project_b');
   });
 
@@ -83,10 +84,23 @@ describe('account classifier', () => {
     });
   });
 
-  it('blocks KOL, personal, and media classifications', () => {
+  it('parses dev classification responses', () => {
+    const result = parseAccountClassificationResponse(
+      '{"type":"DEV","confidence":0.9,"reason":"个人开发者账号"}'
+    );
+
+    expect(result).toEqual({
+      type: 'DEV',
+      confidence: 0.9,
+      reason: '个人开发者账号'
+    });
+  });
+
+  it('blocks KOL, personal, media, and dev classifications', () => {
     expect(shouldAllowClassifiedAccount({ type: 'KOL', confidence: 0.9, reason: 'x' })).toBe(false);
     expect(shouldAllowClassifiedAccount({ type: 'PERSONAL', confidence: 0.9, reason: 'x' })).toBe(false);
     expect(shouldAllowClassifiedAccount({ type: 'MEDIA', confidence: 0.9, reason: 'x' })).toBe(false);
+    expect(shouldAllowClassifiedAccount({ type: 'DEV', confidence: 0.9, reason: 'x' })).toBe(false);
   });
 
   it('classifies an account by calling the injected analyzer', async () => {

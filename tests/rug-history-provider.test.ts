@@ -52,6 +52,34 @@ describe('rug history provider', () => {
     expect(evidence.negativeMentionSamples).toContain('@project_b rug?');
   });
 
+  it('separates unrelated negative search noise from direct project risk evidence', async () => {
+    const postOpen = vi.fn(async (endpoint: string, body: Record<string, unknown>) => {
+      if (endpoint === 'twitter_user_tweets') return { data: [{ id: '1', text: 'building' }] };
+      if (endpoint === 'twitter_deleted_tweets') return { data: [] };
+      if (endpoint === 'twitter_search') {
+        if ('mentionUser' in body) {
+          return { data: [{ text: '@project_b scam warning' }, { text: 'hello project' }] };
+        }
+        if ('toUser' in body) return { data: [] };
+        return { data: [{ text: 'random scam coin' }, { text: '@project_b rug?' }] };
+      }
+      return { data: [] };
+    });
+
+    const evidence = await collectRugHistoryEvidence({
+      link: 'https://x.com/project_b',
+      twitterToken: 'token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      client: { postOpen }
+    });
+
+    expect(evidence.negativeMentionCount).toBe(2);
+    expect(evidence.negativeMentionSamples).toContain('@project_b rug?');
+    expect(evidence.negativeMentionSamples).toContain('@project_b scam warning');
+    expect(evidence.negativeNoiseCount).toBe(1);
+    expect(evidence.negativeNoiseSamples).toEqual(['random scam coin']);
+  });
+
   it('keeps partial evidence when one 6551 endpoint fails', async () => {
     const postOpen = vi.fn(async (endpoint: string) => {
       if (endpoint === 'twitter_deleted_tweets') throw new Error('deleted endpoint failed');

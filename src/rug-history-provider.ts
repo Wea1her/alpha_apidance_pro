@@ -8,9 +8,11 @@ export interface RugHistoryEvidence {
   recentTweetCount: number | null;
   commentNegativeCount: number | null;
   checkedTweetCount: number | null;
+  negativeNoiseCount: number | null;
   deletedTweetSamples: string[];
   negativeMentionSamples: string[];
   commentNegativeSamples: string[];
+  negativeNoiseSamples: string[];
   recentRiskSignals: string[];
   warnings: string[];
 }
@@ -40,9 +42,11 @@ function emptyEvidence(warnings: string[] = []): RugHistoryEvidence {
     recentTweetCount: null,
     commentNegativeCount: null,
     checkedTweetCount: null,
+    negativeNoiseCount: null,
     deletedTweetSamples: [],
     negativeMentionSamples: [],
     commentNegativeSamples: [],
+    negativeNoiseSamples: [],
     recentRiskSignals: [],
     warnings
   };
@@ -128,9 +132,11 @@ export async function collectRugHistoryEvidence(
     recentTweetCount: null,
     commentNegativeCount: null,
     checkedTweetCount: null,
+    negativeNoiseCount: null,
     deletedTweetSamples: [],
     negativeMentionSamples: [],
     commentNegativeSamples: [],
+    negativeNoiseSamples: [],
     recentRiskSignals: [],
     warnings: []
   };
@@ -197,16 +203,26 @@ export async function collectRugHistoryEvidence(
   ];
 
   const negativeMentionTexts = new Set<string>();
+  const negativeNoiseTexts = new Set<string>();
   for (const body of searchBodies) {
     await collectEndpoint(evidence, 'twitter_search', async () => {
       const items = responseItems(await client.postOpen('twitter_search', body));
       for (const text of sampleTexts(items, 20)) {
+        if (!NEGATIVE_PATTERN.test(text)) {
+          continue;
+        }
+        if (!text.toLowerCase().includes(`@${username.toLowerCase()}`)) {
+          negativeNoiseTexts.add(text);
+          continue;
+        }
         negativeMentionTexts.add(text);
       }
     });
   }
   evidence.negativeMentionCount = negativeMentionTexts.size;
   evidence.negativeMentionSamples = [...negativeMentionTexts].slice(0, 3);
+  evidence.negativeNoiseCount = negativeNoiseTexts.size;
+  evidence.negativeNoiseSamples = [...negativeNoiseTexts].slice(0, 3);
 
   const replySearchBodies = [
     {

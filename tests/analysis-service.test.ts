@@ -72,8 +72,13 @@ describe('triggerAnalysisComment', () => {
       deletedTweetCount: 1,
       negativeMentionCount: 2,
       recentTweetCount: 3,
+      commentNegativeCount: 0,
+      checkedTweetCount: 0,
+      negativeNoiseCount: 0,
       deletedTweetSamples: ['deleted mint'],
       negativeMentionSamples: ['rug?'],
+      commentNegativeSamples: [],
+      negativeNoiseSamples: [],
       recentRiskSignals: ['recent mint'],
       warnings: []
     });
@@ -144,9 +149,11 @@ describe('triggerAnalysisComment', () => {
       recentTweetCount: 0,
       commentNegativeCount: 0,
       checkedTweetCount: 0,
+      negativeNoiseCount: 0,
       deletedTweetSamples: [],
       negativeMentionSamples: [],
       commentNegativeSamples: [],
+      negativeNoiseSamples: [],
       recentRiskSignals: [],
       warnings: []
     });
