@@ -25,6 +25,58 @@ describe('sendTelegramMessage', () => {
       })
     ).resolves.toEqual({ messageId: 321, chatId: -100123 });
   });
+
+  it('retries transient fetch failures before giving up on sendMessage', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({
+          ok: true,
+          result: {
+            message_id: 321,
+            chat: {
+              id: -100123
+            }
+          }
+        })
+      });
+
+    await expect(
+      sendTelegramMessage({
+        botToken: 'token',
+        chatId: '@channel',
+        text: 'hello',
+        fetch: fetchMock as unknown as typeof fetch,
+        retryAttempts: 2,
+        retryMinDelayMs: 0
+      })
+    ).resolves.toEqual({ messageId: 321, chatId: -100123 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry non-retryable telegram send errors', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => 'bad request'
+    });
+
+    await expect(
+      sendTelegramMessage({
+        botToken: 'token',
+        chatId: '@channel',
+        text: 'hello',
+        fetch: fetchMock as unknown as typeof fetch,
+        retryAttempts: 3,
+        retryMinDelayMs: 0
+      })
+    ).rejects.toThrow('telegram send failed: 400 bad request');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('replyInTelegramThread', () => {

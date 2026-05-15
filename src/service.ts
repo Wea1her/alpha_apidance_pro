@@ -222,6 +222,9 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     botToken: options.config.telegramBotToken,
     proxyUrl: options.config.proxyUrl,
     store: discussionStore,
+    retryAttempts: options.config.telegramRetryAttempts,
+    retryMinDelayMs: options.config.telegramRetryMinDelayMs,
+    retryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
     info,
     warn
   });
@@ -271,7 +274,17 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
               botToken: options.config.telegramBotToken,
               chatId: options.config.telegramChatId,
               text,
-              proxyUrl: options.config.proxyUrl
+              proxyUrl: options.config.proxyUrl,
+              retryAttempts: options.config.telegramRetryAttempts,
+              retryMinDelayMs: options.config.telegramRetryMinDelayMs,
+              retryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
+              onRetry: (error, attempt, delayMs) => {
+                warn(
+                  `Telegram 主推送失败，${delayMs}ms 后重试：attempt=${attempt} error=${
+                    error instanceof Error ? error.message : String(error)
+                  }`
+                );
+              }
             }),
           classify: async (message: Record<string, unknown>, count: number, star: number) => {
             const link = messageString(message, 'link');
@@ -314,6 +327,9 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
               twitterApiBaseUrl: options.config.twitterApiBaseUrl,
               proxyUrl: options.config.proxyUrl,
               discussionChatId: options.config.discussionChatId,
+              telegramRetryAttempts: options.config.telegramRetryAttempts,
+              telegramRetryMinDelayMs: options.config.telegramRetryMinDelayMs,
+              telegramRetryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
               discussionStore,
               botToken: options.config.telegramBotToken,
               channelChatId: sendResult.chatId,

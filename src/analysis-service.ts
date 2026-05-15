@@ -12,6 +12,9 @@ export interface TriggerAnalysisOptions {
   xaiModel: string;
   proxyUrl?: string;
   discussionChatId?: string;
+  telegramRetryAttempts?: number;
+  telegramRetryMinDelayMs?: number;
+  telegramRetryMaxDelayMs?: number;
   discussionStore: DiscussionMappingStore;
   botToken: string;
   channelChatId: number;
@@ -81,7 +84,17 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
       chatId: options.existingAnalysis.discussionChatId,
       replyToMessageId: options.existingAnalysis.analysisMessageId,
       text: `重复命中提醒\n\n${options.title}\n监控池关注数：${options.count}\n当前重要程度：${options.star} 星`,
-      proxyUrl: options.proxyUrl
+      proxyUrl: options.proxyUrl,
+      retryAttempts: options.telegramRetryAttempts,
+      retryMinDelayMs: options.telegramRetryMinDelayMs,
+      retryMaxDelayMs: options.telegramRetryMaxDelayMs,
+      onRetry: (error, attempt, delayMs) => {
+        warn(
+          `Telegram 重复提醒回复失败，${delayMs}ms 后重试：attempt=${attempt} error=${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
     });
     info(`已回复既有分析评论：${options.projectKey}`);
     return;
@@ -126,7 +139,17 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
     chatId: options.discussionChatId,
     replyToMessageId: mapping.discussionMessageId,
     text: `Grok 分析\n\n${cleanedAnalysis}`,
-    proxyUrl: options.proxyUrl
+    proxyUrl: options.proxyUrl,
+    retryAttempts: options.telegramRetryAttempts,
+    retryMinDelayMs: options.telegramRetryMinDelayMs,
+    retryMaxDelayMs: options.telegramRetryMaxDelayMs,
+    onRetry: (error, attempt, delayMs) => {
+      warn(
+        `Telegram Grok 分析回复失败，${delayMs}ms 后重试：attempt=${attempt} error=${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   });
 
   info(`已写入讨论群评论：${mapping.discussionChatId}/${mapping.discussionMessageId}`);

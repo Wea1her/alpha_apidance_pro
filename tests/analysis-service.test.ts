@@ -43,13 +43,13 @@ describe('triggerAnalysisComment', () => {
 
     expect(analyze).not.toHaveBeenCalled();
     expect(getRugHistory).not.toHaveBeenCalled();
-    expect(reply).toHaveBeenCalledWith({
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
       botToken: 'bot',
       chatId: '-1003769834276',
       replyToMessageId: 555,
       text: '重复命中提醒\n\nA 关注了 B\n监控池关注数：12\n当前重要程度：3 星',
       proxyUrl: 'http://127.0.0.1:7890'
-    });
+    }));
   });
 
   it('returns the created analysis comment message on first analysis', async () => {

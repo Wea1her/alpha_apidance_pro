@@ -21,6 +21,9 @@ export interface ServiceConfig {
   heartbeatTimeoutMs: number;
   reconnectMinDelayMs: number;
   reconnectMaxDelayMs: number;
+  telegramRetryAttempts: number;
+  telegramRetryMinDelayMs: number;
+  telegramRetryMaxDelayMs: number;
 }
 
 type EnvLike = Record<string, string | undefined>;
@@ -63,6 +66,9 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     commonFollowStarLevels: parseStarLevels(env.COMMON_FOLLOW_STAR_LEVELS),
     heartbeatTimeoutMs: parsePositiveInteger(env, 'ALPHA_HEARTBEAT_TIMEOUT_MS', 90_000),
     reconnectMinDelayMs: parsePositiveInteger(env, 'ALPHA_RECONNECT_MIN_DELAY_MS', 1_000),
-    reconnectMaxDelayMs: parsePositiveInteger(env, 'ALPHA_RECONNECT_MAX_DELAY_MS', 30_000)
+    reconnectMaxDelayMs: parsePositiveInteger(env, 'ALPHA_RECONNECT_MAX_DELAY_MS', 30_000),
+    telegramRetryAttempts: parsePositiveInteger(env, 'TELEGRAM_RETRY_ATTEMPTS', 5),
+    telegramRetryMinDelayMs: parsePositiveInteger(env, 'TELEGRAM_RETRY_MIN_DELAY_MS', 1_000),
+    telegramRetryMaxDelayMs: parsePositiveInteger(env, 'TELEGRAM_RETRY_MAX_DELAY_MS', 30_000)
   };
 }

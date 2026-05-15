@@ -1,4 +1,5 @@
 import { ProxyAgent } from 'undici';
+import { retry } from './retry.js';
 
 type FetchWithDispatcher = (
   input: string,
@@ -69,6 +70,10 @@ export async function fetchTelegramUpdates(options: {
   proxyUrl?: string;
   offset?: number;
   fetch?: typeof fetch;
+  retryAttempts?: number;
+  retryMinDelayMs?: number;
+  retryMaxDelayMs?: number;
+  onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
 }): Promise<unknown[]> {
   const fetchImpl = (options.fetch ?? fetch) as FetchWithDispatcher;
   const dispatcher = options.proxyUrl ? new ProxyAgent(options.proxyUrl) : undefined;
@@ -76,16 +81,26 @@ export async function fetchTelegramUpdates(options: {
   if (typeof options.offset === 'number') {
     url.searchParams.set('offset', String(options.offset));
   }
-  const response = await fetchImpl(url.toString(), {
-    dispatcher
-  });
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(`telegram getUpdates failed: ${response.status} ${body}`);
-  }
-  const parsed = JSON.parse(body) as { ok?: boolean; result?: unknown[]; description?: string };
-  if (!parsed.ok || !Array.isArray(parsed.result)) {
-    throw new Error(parsed.description ?? 'telegram getUpdates returned invalid payload');
-  }
-  return parsed.result;
+  return retry(
+    async () => {
+      const response = await fetchImpl(url.toString(), {
+        dispatcher
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        throw new Error(`telegram getUpdates failed: ${response.status} ${body}`);
+      }
+      const parsed = JSON.parse(body) as { ok?: boolean; result?: unknown[]; description?: string };
+      if (!parsed.ok || !Array.isArray(parsed.result)) {
+        throw new Error(parsed.description ?? 'telegram getUpdates returned invalid payload');
+      }
+      return parsed.result;
+    },
+    {
+      attempts: options.retryAttempts ?? 5,
+      minDelayMs: options.retryMinDelayMs ?? 1_000,
+      maxDelayMs: options.retryMaxDelayMs ?? 30_000,
+      onRetry: options.onRetry
+    }
+  );
 }

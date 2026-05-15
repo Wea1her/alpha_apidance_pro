@@ -7,6 +7,9 @@ export interface StartDiscussionPollerOptions {
   proxyUrl?: string;
   store: DiscussionMappingStore;
   intervalMs?: number;
+  retryAttempts?: number;
+  retryMinDelayMs?: number;
+  retryMaxDelayMs?: number;
   info?: (message: string) => void;
   warn?: (message: string) => void;
 }
@@ -25,7 +28,17 @@ export function startDiscussionPoller(options: StartDiscussionPollerOptions): ()
       const updates = await fetchTelegramUpdates({
         botToken: options.botToken,
         proxyUrl: options.proxyUrl,
-        offset
+        offset,
+        retryAttempts: options.retryAttempts,
+        retryMinDelayMs: options.retryMinDelayMs,
+        retryMaxDelayMs: options.retryMaxDelayMs,
+        onRetry: (error, attempt, delayMs) => {
+          warn(
+            `轮询讨论群更新失败，${delayMs}ms 后重试：attempt=${attempt} error=${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
       });
       const maxUpdateId = updates.reduce<number | undefined>((max, update) => {
         if (!update || typeof update !== 'object') return max;

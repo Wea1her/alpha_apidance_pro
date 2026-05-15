@@ -83,6 +83,9 @@ ALPHA_RECONNECT_MAX_DELAY_MS=30000
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 DISCUSSION_CHAT_ID=
+TELEGRAM_RETRY_ATTEMPTS=5
+TELEGRAM_RETRY_MIN_DELAY_MS=1000
+TELEGRAM_RETRY_MAX_DELAY_MS=30000
 
 PROXY_URL=
 
@@ -111,6 +114,8 @@ TWITTER_API_BASE_URL=https://ai.6551.io
 `TELEGRAM_CHAT_ID` 是主推送频道 ID。
 
 `DISCUSSION_CHAT_ID` 是频道关联讨论群 ID，用于写入 Grok 分析和重复命中提醒。
+
+`TELEGRAM_RETRY_ATTEMPTS`、`TELEGRAM_RETRY_MIN_DELAY_MS`、`TELEGRAM_RETRY_MAX_DELAY_MS` 控制 Telegram 主推送、讨论群回复和 updates 轮询的短重试。默认是 5 次，1 秒起步，最高 30 秒。
 
 `PROXY_URL` 是代理地址。服务器没有代理时留空；如果服务器本机跑 Clash，可以填 `http://127.0.0.1:7890`。
 
@@ -403,12 +408,16 @@ PROXY_URL=http://172.31.224.1:7890
 WebSocket 断线自动重连
 heartbeat 超时主动重连
 登录失败自动重试
+Telegram 主推送 fetch failed 自动重试
+Telegram 讨论群回复和 updates 轮询自动重试
 事件级重复消息去重
 项目级升星重复推送
 账号分类失败时保守推送
 6551 查询失败不阻塞主推送
 Grok 分析失败不影响后续 WebSocket 监听
 ```
+
+注意：Alpha WebSocket 断线期间，如果上游没有补发历史消息，服务无法凭空补回断线窗口内的 Alpha 推送，只能尽快重连并继续接收新消息。
 
 ## 本地验证
 

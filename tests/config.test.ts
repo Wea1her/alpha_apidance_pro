@@ -18,7 +18,27 @@ describe('parseServiceConfig', () => {
       telegramChatId: '-100123',
       commonFollowStarLevels: [5, 8, 12, 15, 20],
       twitterToken: 'twitter-token',
-      twitterApiBaseUrl: 'https://example.6551'
+      twitterApiBaseUrl: 'https://example.6551',
+      telegramRetryAttempts: 5,
+      telegramRetryMinDelayMs: 1000,
+      telegramRetryMaxDelayMs: 30000
+    });
+  });
+
+  it('parses telegram retry config', () => {
+    expect(
+      parseServiceConfig({
+        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+        TELEGRAM_CHAT_ID: '-100123',
+        TELEGRAM_RETRY_ATTEMPTS: '8',
+        TELEGRAM_RETRY_MIN_DELAY_MS: '500',
+        TELEGRAM_RETRY_MAX_DELAY_MS: '10000'
+      })
+    ).toMatchObject({
+      telegramRetryAttempts: 8,
+      telegramRetryMinDelayMs: 500,
+      telegramRetryMaxDelayMs: 10000
     });
   });
 
