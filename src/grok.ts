@@ -13,22 +13,26 @@ export function shouldTriggerGrokAnalysis(star: number): boolean {
   return star >= 3;
 }
 
-function formatList(items: string[]): string {
+function formatList(items: string[] | undefined): string {
+  if (!items) return '  - 暂无';
   return items.length > 0 ? items.map((item) => `  - ${item}`).join('\n') : '  - 暂无';
 }
 
 function formatRugHistory(evidence: RugHistoryEvidence | undefined): string[] {
-  if (!evidence) return ['Rug 历史数据源：未查询'];
+  if (!evidence) return ['Rug 历史：未查询'];
   return [
-    `Rug 历史数据源：${evidence.source}`,
     `Rug 数据可用：${evidence.available ? '是' : '否'}`,
     `删帖数量：${evidence.deletedTweetCount ?? '未知'}`,
     `负面提及数量：${evidence.negativeMentionCount ?? '未知'}`,
     `近期推文数量：${evidence.recentTweetCount ?? '未知'}`,
+    `检查推文数量：${evidence.checkedTweetCount ?? '未知'}`,
+    `评论区负面数量：${evidence.commentNegativeCount ?? '未知'}`,
     '删帖样本：',
     formatList(evidence.deletedTweetSamples),
     '负面评论样本：',
     formatList(evidence.negativeMentionSamples),
+    '评论区负面样本：',
+    formatList(evidence.commentNegativeSamples),
     '近期风险信号：',
     formatList(evidence.recentRiskSignals),
     '数据警告：',

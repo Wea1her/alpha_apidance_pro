@@ -6,8 +6,11 @@ export interface RugHistoryEvidence {
   deletedTweetCount: number | null;
   negativeMentionCount: number | null;
   recentTweetCount: number | null;
+  commentNegativeCount: number | null;
+  checkedTweetCount: number | null;
   deletedTweetSamples: string[];
   negativeMentionSamples: string[];
+  commentNegativeSamples: string[];
   recentRiskSignals: string[];
   warnings: string[];
 }
@@ -21,6 +24,7 @@ export interface CollectRugHistoryEvidenceOptions {
 }
 
 type MutableEvidence = RugHistoryEvidence;
+const NEGATIVE_PATTERN = /rug|scam|drain|phishing|hacked|fraud|跑路|割|骗局|诈骗|钓鱼|黑客|归零|无法提现|退款/i;
 
 export function extractUsernameFromXLink(link: string): string | null {
   const matched = link.match(/^https?:\/\/(?:x|twitter)\.com\/([^/?#]+)/i);
@@ -34,8 +38,11 @@ function emptyEvidence(warnings: string[] = []): RugHistoryEvidence {
     deletedTweetCount: null,
     negativeMentionCount: null,
     recentTweetCount: null,
+    commentNegativeCount: null,
+    checkedTweetCount: null,
     deletedTweetSamples: [],
     negativeMentionSamples: [],
+    commentNegativeSamples: [],
     recentRiskSignals: [],
     warnings
   };
@@ -65,8 +72,23 @@ function itemText(item: unknown): string | null {
   return null;
 }
 
+function itemId(item: unknown): string | null {
+  if (!item || typeof item !== 'object') return null;
+  const record = item as Record<string, unknown>;
+  for (const key of ['id', 'idStr', 'twId', 'tweetId', 'rest_id']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
 function sampleTexts(items: unknown[], limit = 3): string[] {
   return items.map(itemText).filter((value): value is string => Boolean(value)).slice(0, limit);
+}
+
+function negativeTexts(items: unknown[], limit = 20): string[] {
+  return sampleTexts(items, limit).filter((text) => NEGATIVE_PATTERN.test(text));
 }
 
 async function collectEndpoint(
@@ -104,11 +126,15 @@ export async function collectRugHistoryEvidence(
     deletedTweetCount: null,
     negativeMentionCount: null,
     recentTweetCount: null,
+    commentNegativeCount: null,
+    checkedTweetCount: null,
     deletedTweetSamples: [],
     negativeMentionSamples: [],
+    commentNegativeSamples: [],
     recentRiskSignals: [],
     warnings: []
   };
+  let recentTweetItems: unknown[] = [];
 
   await collectEndpoint(evidence, 'twitter_user_info', async () => {
     await client.postOpen('twitter_user_info', { username });
@@ -128,11 +154,29 @@ export async function collectRugHistoryEvidence(
       includeReplies: true,
       includeRetweets: false
     }));
+    recentTweetItems = items;
     evidence.recentTweetCount = items.length;
     evidence.recentRiskSignals = sampleTexts(items).filter((text) =>
       /mint|airdrop|claim|refund|hack|rug|scam|跑路|割|骗局|退款|钓鱼/i.test(text)
     );
   });
+
+  const tweetIds = [...new Set(recentTweetItems.map(itemId).filter((id): id is string => Boolean(id)))].slice(0, 3);
+  evidence.checkedTweetCount = tweetIds.length;
+  if (tweetIds.length === 0) {
+    evidence.warnings.push('近期推文缺少可查询 tweet id，跳过 quote 评论区查询');
+  }
+
+  const quoteNegativeTexts = new Set<string>();
+  const replyNegativeTexts = new Set<string>();
+  for (const id of tweetIds) {
+    await collectEndpoint(evidence, 'twitter_quote_tweets_by_id', async () => {
+      const items = responseItems(await client.postOpen('twitter_quote_tweets_by_id', { id, maxResults: 20 }));
+      for (const text of negativeTexts(items)) {
+        quoteNegativeTexts.add(text);
+      }
+    });
+  }
 
   const searchBodies = [
     {
@@ -163,6 +207,36 @@ export async function collectRugHistoryEvidence(
   }
   evidence.negativeMentionCount = negativeMentionTexts.size;
   evidence.negativeMentionSamples = [...negativeMentionTexts].slice(0, 3);
+
+  const replySearchBodies = [
+    {
+      toUser: username,
+      keywords: 'rug OR scam OR drain OR phishing OR hacked OR fraud',
+      maxResults: 20,
+      product: 'Latest'
+    },
+    {
+      toUser: username,
+      keywords: '跑路 OR 割 OR 骗局 OR 诈骗 OR 钓鱼 OR 黑客 OR 归零 OR 无法提现',
+      maxResults: 20,
+      product: 'Latest'
+    }
+  ];
+
+  for (const body of replySearchBodies) {
+    await collectEndpoint(evidence, 'twitter_search_to_user', async () => {
+      const items = responseItems(await client.postOpen('twitter_search', body));
+      for (const text of negativeTexts(items)) {
+        replyNegativeTexts.add(text);
+      }
+    });
+  }
+  const commentNegativeTexts = new Set([...quoteNegativeTexts, ...replyNegativeTexts]);
+  evidence.commentNegativeCount = commentNegativeTexts.size;
+  evidence.commentNegativeSamples = [
+    ...[...quoteNegativeTexts].slice(0, 2),
+    ...[...replyNegativeTexts].slice(0, 1)
+  ];
 
   return evidence;
 }
