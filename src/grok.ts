@@ -65,6 +65,7 @@ export function buildGrokPrompt(input: GrokAnalysisInput): string {
     '要求：',
     '- 全部使用中文',
     '- 风格专业、克制、信息密度高',
-    '- 每行尽量控制在 30-50 字'
+    '- 每行尽量控制在 30-50 字',
+    '- 不要输出 Source、来源、参考来源、数据来源或引用列表'
   ].join('\n');
 }

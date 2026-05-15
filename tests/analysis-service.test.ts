@@ -111,4 +111,63 @@ describe('triggerAnalysisComment', () => {
     expect(analyze.mock.calls[0][0]).toContain('Rug 历史/风险');
     expect(analyze.mock.calls[0][0]).toContain('deleted mint');
   });
+
+  it('removes source blocks from the sent Grok analysis text', async () => {
+    const store = new DiscussionMappingStore();
+    store.ingest([
+      {
+        channelChatId: -1003903535780,
+        channelMessageId: 88,
+        discussionChatId: -1003769834276,
+        discussionMessageId: 99
+      }
+    ]);
+
+    const reply = vi.fn().mockResolvedValue({ messageId: 556, chatId: -1003769834276 });
+    const analyze = vi.fn().mockResolvedValue([
+      '1. 项目核心信息：test',
+      '2. 当前进展：early',
+      '',
+      'Source: 6551'
+    ].join('\n'));
+    const getRugHistory = vi.fn().mockResolvedValue({
+      source: '6551',
+      available: true,
+      deletedTweetCount: 0,
+      negativeMentionCount: 0,
+      recentTweetCount: 0,
+      commentNegativeCount: 0,
+      checkedTweetCount: 0,
+      deletedTweetSamples: [],
+      negativeMentionSamples: [],
+      commentNegativeSamples: [],
+      recentRiskSignals: [],
+      warnings: []
+    });
+
+    await triggerAnalysisComment({
+      xaiApiKey: 'key',
+      xaiBaseUrl: 'https://example.com',
+      xaiModel: 'grok-4.20-fast',
+      proxyUrl: 'http://127.0.0.1:7890',
+      discussionChatId: '-1003769834276',
+      discussionStore: store,
+      botToken: 'bot',
+      channelChatId: -1003903535780,
+      channelMessageId: 88,
+      projectKey: 'b',
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      twitterToken: 'twitter-token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      getRugHistory,
+      analyze,
+      reply
+    });
+
+    expect(reply.mock.calls[0][0].text).toBe('Grok 分析\n\n1. 项目核心信息：test\n2. 当前进展：early');
+  });
 });

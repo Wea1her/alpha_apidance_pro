@@ -42,6 +42,14 @@ export interface TriggerAnalysisOptions {
   warn?: (message: string) => void;
 }
 
+function removeAnalysisSourceBlock(text: string): string {
+  const lines = text.trim().split('\n');
+  const sourceStart = lines.findIndex((line) =>
+    /^(?:source|sources|来源|参考来源|数据来源|引用列表)\s*[:：]/i.test(line.trim())
+  );
+  return (sourceStart >= 0 ? lines.slice(0, sourceStart) : lines).join('\n').trim();
+}
+
 export async function triggerAnalysisComment(options: TriggerAnalysisOptions): Promise<TelegramSendResult | void> {
   const info = options.info ?? console.info;
   const warn = options.warn ?? console.warn;
@@ -98,12 +106,13 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
         proxyUrl: options.proxyUrl,
         prompt
       });
+  const cleanedAnalysis = removeAnalysisSourceBlock(analysis);
 
   const replyResult = await reply({
     botToken: options.botToken,
     chatId: options.discussionChatId,
     replyToMessageId: mapping.discussionMessageId,
-    text: `Grok 分析\n\n${analysis}`,
+    text: `Grok 分析\n\n${cleanedAnalysis}`,
     proxyUrl: options.proxyUrl
   });
 
