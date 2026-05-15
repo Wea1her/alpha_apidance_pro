@@ -27,6 +27,7 @@ export const DEFAULT_ANALYSIS_SKILL = `# 项目/Alpha 账号分析 Skill
 - 全部使用中文。
 - 风格专业、克制、信息密度高。
 - 每行可以扩充到接近 100 字，优先保证具体、全面、可执行，不要为了短而省略关键判断。
+- 不要使用 Markdown 加粗或斜体，不要输出 * 号。
 - 不要输出 Source、来源、参考来源、数据来源或引用列表。`;
 
 export interface LoadAnalysisSkillOptions {

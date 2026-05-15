@@ -129,8 +129,8 @@ describe('triggerAnalysisComment', () => {
 
     const reply = vi.fn().mockResolvedValue({ messageId: 556, chatId: -1003769834276 });
     const analyze = vi.fn().mockResolvedValue([
-      '1. 项目核心信息：test [[1]](https://example.com/report.pdf)',
-      '2. 当前进展：early',
+      '**1. 项目核心信息**：test [[1]](https://example.com/report.pdf)',
+      '**2. 当前进展**：early',
       '',
       '## Sources',
       '[grok2api-sources]: #',
@@ -175,5 +175,6 @@ describe('triggerAnalysisComment', () => {
     });
 
     expect(reply.mock.calls[0][0].text).toBe('Grok 分析\n\n1. 项目核心信息：test\n2. 当前进展：early');
+    expect(reply.mock.calls[0][0].text).not.toContain('*');
   });
 });

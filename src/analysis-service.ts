@@ -50,7 +50,13 @@ function removeAnalysisSourceBlock(text: string): string {
     /^(?:#{1,6}\s*)?(?:source|sources|来源|参考来源|数据来源|引用列表)\s*[:：]?/i.test(line.trim())
   );
   return (sourceStart >= 0 ? lines.slice(0, sourceStart) : lines)
-    .map((line) => line.replace(/\s*\[\[\d+\]\]\([^)]+\)/g, ''))
+    .map((line) =>
+      line
+        .replace(/\s*\[\[\d+\]\]\([^)]+\)/g, '')
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/\*/g, '')
+    )
     .join('\n')
     .trim();
 }

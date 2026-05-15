@@ -116,6 +116,32 @@ describe('processAlphaMessage', () => {
     expect(afterSend).not.toHaveBeenCalled();
   });
 
+  it('blocks media events before sending to Telegram', async () => {
+    const send = vi.fn();
+    const afterSend = vi.fn();
+    const classify = vi.fn().mockResolvedValue({ allowPush: false, type: 'MEDIA', reason: '媒体资讯账号' });
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 B',
+        content: '用户简介: crypto media and news\n你关注的20个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660297
+      }),
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe: new Set(),
+      send,
+      classify,
+      afterSend
+    });
+
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(afterSend).not.toHaveBeenCalled();
+  });
+
   it('pushes and analyzes when classification fails', async () => {
     const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
     const afterSend = vi.fn();

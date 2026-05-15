@@ -1,6 +1,6 @@
 import { requestGrokAnalysis } from './xai-client.js';
 
-export type AccountClassificationType = 'PROJECT' | 'ALPHA' | 'KOL' | 'PERSONAL' | 'UNKNOWN';
+export type AccountClassificationType = 'PROJECT' | 'ALPHA' | 'KOL' | 'PERSONAL' | 'MEDIA' | 'UNKNOWN';
 
 export interface AccountClassificationInput {
   title: string;
@@ -29,6 +29,7 @@ const CLASSIFICATION_TYPES = new Set<AccountClassificationType>([
   'ALPHA',
   'KOL',
   'PERSONAL',
+  'MEDIA',
   'UNKNOWN'
 ]);
 
@@ -44,6 +45,7 @@ export function buildAccountClassificationPrompt(input: AccountClassificationInp
     '- ALPHA：早期机会、链上热点、打新线索，信息不完整但更像项目或产品',
     '- KOL：个人影响力账号、交易员、研究员、博主、资讯号主',
     '- PERSONAL：普通个人账号、创始人个人号、团队成员个人号',
+    '- MEDIA：媒体、新闻、资讯聚合、快讯、行情播报、内容搬运或媒体属性账号',
     '- UNKNOWN：信息不足，无法明确判断',
     '',
     '已知信息：',
@@ -58,6 +60,7 @@ export function buildAccountClassificationPrompt(input: AccountClassificationInp
     '- 早期但明显像项目或机会线索的账号归为 ALPHA',
     '- 个人观点、交易观点、研究分享、博主身份明显的账号归为 KOL',
     '- 创始人或团队成员个人号归为 PERSONAL',
+    '- 媒体、新闻、快讯、资讯聚合、内容搬运、行情播报属性明显的账号归为 MEDIA',
     '- 信息不足时归为 UNKNOWN'
   ].join('\n');
 }

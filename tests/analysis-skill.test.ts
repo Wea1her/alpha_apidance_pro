@@ -33,5 +33,7 @@ describe('loadAnalysisSkill', () => {
     expect(DEFAULT_ANALYSIS_SKILL).toContain('重仓打新');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('Pass');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('接近 100 字');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('不要使用 Markdown 加粗');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('不要输出 * 号');
   });
 });

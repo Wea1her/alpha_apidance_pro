@@ -21,6 +21,7 @@ describe('account classifier', () => {
     expect(prompt).toContain('只返回 JSON');
     expect(prompt).toContain('PROJECT');
     expect(prompt).toContain('KOL');
+    expect(prompt).toContain('MEDIA');
     expect(prompt).toContain('https://x.com/project_b');
   });
 
@@ -70,9 +71,22 @@ describe('account classifier', () => {
     expect(shouldAllowClassifiedAccount({ type: 'UNKNOWN', confidence: 0.2, reason: 'x' })).toBe(true);
   });
 
-  it('blocks KOL and personal classifications', () => {
+  it('parses media classification responses', () => {
+    const result = parseAccountClassificationResponse(
+      '{"type":"MEDIA","confidence":0.86,"reason":"媒体资讯聚合账号"}'
+    );
+
+    expect(result).toEqual({
+      type: 'MEDIA',
+      confidence: 0.86,
+      reason: '媒体资讯聚合账号'
+    });
+  });
+
+  it('blocks KOL, personal, and media classifications', () => {
     expect(shouldAllowClassifiedAccount({ type: 'KOL', confidence: 0.9, reason: 'x' })).toBe(false);
     expect(shouldAllowClassifiedAccount({ type: 'PERSONAL', confidence: 0.9, reason: 'x' })).toBe(false);
+    expect(shouldAllowClassifiedAccount({ type: 'MEDIA', confidence: 0.9, reason: 'x' })).toBe(false);
   });
 
   it('classifies an account by calling the injected analyzer', async () => {
