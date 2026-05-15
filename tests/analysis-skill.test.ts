@@ -18,4 +18,20 @@ describe('loadAnalysisSkill', () => {
 
     await expect(loadAnalysisSkill({ name: 'missing', directory: dir })).resolves.toBe(DEFAULT_ANALYSIS_SKILL);
   });
+
+  it('keeps the default skill aligned with the asymmetric trading analysis rules', () => {
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('低成本试错');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('高赔率机会');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('follower 增长');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('互动率');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('链上关联');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('类似项目结局');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('删帖频率');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('值得/不值得');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('建议仓位/操作');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('小仓观察');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('重仓打新');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('Pass');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('接近 100 字');
+  });
 });
