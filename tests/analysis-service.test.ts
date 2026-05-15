@@ -65,6 +65,7 @@ describe('triggerAnalysisComment', () => {
 
     const reply = vi.fn().mockResolvedValue({ messageId: 556, chatId: -1003769834276 });
     const analyze = vi.fn().mockResolvedValue('1. 项目核心信息：test');
+    const loadSkill = vi.fn().mockResolvedValue('# 测试 Skill\n\n只输出测试分析。');
     const getRugHistory = vi.fn().mockResolvedValue({
       source: '6551',
       available: true,
@@ -97,6 +98,7 @@ describe('triggerAnalysisComment', () => {
         twitterToken: 'twitter-token',
         twitterApiBaseUrl: 'https://ai.6551.io',
         getRugHistory,
+        loadSkill,
         analyze,
         reply
       })
@@ -108,8 +110,10 @@ describe('triggerAnalysisComment', () => {
       twitterApiBaseUrl: 'https://ai.6551.io',
       proxyUrl: 'http://127.0.0.1:7890'
     });
-    expect(analyze.mock.calls[0][0]).toContain('Rug 历史/风险');
+    expect(loadSkill).toHaveBeenCalledOnce();
+    expect(analyze.mock.calls[0][0]).toContain('Rug 数据可用');
     expect(analyze.mock.calls[0][0]).toContain('deleted mint');
+    expect(analyze.mock.calls[0][0]).toContain('# 测试 Skill');
   });
 
   it('removes source blocks from the sent Grok analysis text', async () => {

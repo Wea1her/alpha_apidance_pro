@@ -65,4 +65,18 @@ describe('buildGrokPrompt', () => {
     expect(prompt).not.toContain('source');
     expect(prompt).not.toContain('数据源');
   });
+
+  it('uses analysis skill text for output instructions', () => {
+    const prompt = buildGrokPrompt({
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      analysisSkill: '# 自定义 Skill\n\n只输出：项目判断、风险等级。'
+    });
+
+    expect(prompt).toContain('# 自定义 Skill');
+    expect(prompt).toContain('只输出：项目判断、风险等级');
+  });
 });
