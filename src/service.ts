@@ -145,17 +145,29 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
 
   const projectKey = buildProjectKey(message);
   const previousStar = options.projectStars?.get(projectKey) ?? 0;
-  if (previousStar >= decision.star) {
+  const maxStar = options.commonFollowStarLevels.length;
+  const isMaxStar = decision.star >= maxStar;
+  if (!isMaxStar && previousStar >= decision.star) {
     info(`项目星级未升高，跳过重复推送：project=${projectKey} previous=${previousStar} current=${decision.star}`);
     return;
   }
-  const starChange = previousStar > 0 ? { from: previousStar, to: decision.star } : undefined;
+  const starChange = previousStar > 0 && previousStar < decision.star ? { from: previousStar, to: decision.star } : undefined;
+  if (options.projectStars && !isMaxStar) {
+    options.projectStars.set(projectKey, decision.star);
+  }
 
   if (options.classify) {
     try {
       const classification = await options.classify(message, count, decision.star);
       const reason = classification.reason ? ` reason=${classification.reason}` : '';
       if (!classification.allowPush) {
+        if (options.projectStars && !isMaxStar) {
+          if (previousStar > 0) {
+            options.projectStars.set(projectKey, previousStar);
+          } else {
+            options.projectStars.delete(projectKey);
+          }
+        }
         info(`账号分类拦截：type=${classification.type}${reason}`);
         return;
       }
@@ -165,16 +177,28 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
     }
   }
 
-  const sendResult = await options.send(
-    buildForwardMessage(
-      message,
-      count,
-      decision.stars,
-      calculateReceiveLatencyMs(message, options.receivedAt),
-      starChange
-    )
-  );
-  options.projectStars?.set(projectKey, decision.star);
+  let sendResult: TelegramSendResult;
+  try {
+    sendResult = await options.send(
+      buildForwardMessage(
+        message,
+        count,
+        decision.stars,
+        calculateReceiveLatencyMs(message, options.receivedAt),
+        starChange
+      )
+    );
+    options.projectStars?.set(projectKey, decision.star);
+  } catch (error) {
+    if (options.projectStars && !isMaxStar) {
+      if (previousStar > 0) {
+        options.projectStars.set(projectKey, previousStar);
+      } else {
+        options.projectStars.delete(projectKey);
+      }
+    }
+    throw error;
+  }
 
   if (options.afterSend) {
     await options.afterSend(message, count, decision.star, sendResult);

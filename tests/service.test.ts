@@ -279,4 +279,90 @@ describe('processAlphaMessage', () => {
     expect(projectStars.get('b')).toBe(2);
     expect(send.mock.calls[1][0].split('\n')[0]).toBe('检测到项目星级变化：1星 → 2星');
   });
+
+  it('skips concurrent repeated project pushes below the max star level', async () => {
+    const sendResolves: Array<(value: { chatId: number; messageId: number }) => void> = [];
+    const send = vi.fn(
+      () =>
+        new Promise<{ chatId: number; messageId: number }>((resolve) => {
+          sendResolves.push(resolve);
+        })
+    );
+    const dedupe = new Set<string>();
+    const projectStars = new Map<string, number>();
+    const baseInput = {
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      send
+    };
+
+    const first = processAlphaMessage({
+      ...baseInput,
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 alt.fun',
+        content: '你关注的5个用户也关注了ta',
+        link: 'https://x.com/altdotfun',
+        push_at: 1778660297
+      })
+    });
+    const second = processAlphaMessage({
+      ...baseInput,
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'C 关注了 alt.fun',
+        content: '你关注的7个用户也关注了ta',
+        link: 'https://x.com/altdotfun',
+        push_at: 1778660397
+      })
+    });
+
+    for (const resolve of sendResolves) {
+      resolve({ chatId: -1001, messageId: 10 });
+    }
+    await Promise.all([first, second]);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(projectStars.get('altdotfun')).toBe(1);
+  });
+
+  it('keeps pushing repeated projects at the max star level', async () => {
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+    const dedupe = new Set<string>();
+    const projectStars = new Map<string, number>();
+    const baseInput = {
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      send
+    };
+
+    await processAlphaMessage({
+      ...baseInput,
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 alt.fun',
+        content: '你关注的46个用户也关注了ta',
+        link: 'https://x.com/altdotfun',
+        push_at: 1778660297
+      })
+    });
+    await processAlphaMessage({
+      ...baseInput,
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'C 关注了 alt.fun',
+        content: '你关注的46个用户也关注了ta',
+        link: 'https://x.com/altdotfun',
+        push_at: 1778660397
+      })
+    });
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(projectStars.get('altdotfun')).toBe(5);
+    expect(send.mock.calls[1][0].split('\n')[0]).toBe('⭐⭐⭐⭐⭐ Alpha 共同关注推送');
+  });
 });
