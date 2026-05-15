@@ -71,4 +71,65 @@ describe('rug history provider', () => {
     expect(evidence.negativeMentionCount).toBe(1);
     expect(evidence.warnings.some((warning) => warning.includes('twitter_deleted_tweets'))).toBe(true);
   });
+
+  it('collects negative quote and reply-like comment samples from recent tweets', async () => {
+    const postOpen = vi.fn(async (endpoint: string, body: Record<string, unknown>) => {
+      if (endpoint === 'twitter_user_tweets') {
+        return {
+          data: [
+            { id: '1', text: 'launch update' },
+            { idStr: '2', text: 'mint update' },
+            { twId: '3', text: 'airdrop update' },
+            { tweetId: '4', text: 'extra update' }
+          ]
+        };
+      }
+      if (endpoint === 'twitter_quote_tweets_by_id') {
+        return { data: [{ text: `quote ${body.id} rug warning` }] };
+      }
+      if (endpoint === 'twitter_search') {
+        if ('toUser' in body) return { data: [{ text: '@project_b 无法提现' }] };
+        return { data: [] };
+      }
+      return { data: [] };
+    });
+
+    const evidence = await collectRugHistoryEvidence({
+      link: 'https://x.com/project_b',
+      twitterToken: 'token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      client: { postOpen }
+    });
+
+    expect(evidence.checkedTweetCount).toBe(3);
+    expect(evidence.commentNegativeCount).toBe(4);
+    expect(evidence.commentNegativeSamples).toContain('quote 1 rug warning');
+    expect(evidence.commentNegativeSamples).toContain('@project_b 无法提现');
+    expect(postOpen.mock.calls.filter(([endpoint]) => endpoint === 'twitter_quote_tweets_by_id')).toHaveLength(3);
+  });
+
+  it('keeps comment evidence when one quote lookup fails', async () => {
+    const postOpen = vi.fn(async (endpoint: string, body: Record<string, unknown>) => {
+      if (endpoint === 'twitter_user_tweets') {
+        return { data: [{ id: '1', text: 'one' }, { id: '2', text: 'two' }] };
+      }
+      if (endpoint === 'twitter_quote_tweets_by_id') {
+        if (body.id === '1') throw new Error('quote failed');
+        return { data: [{ text: 'second tweet scam warning' }] };
+      }
+      if (endpoint === 'twitter_search') return { data: [] };
+      return { data: [] };
+    });
+
+    const evidence = await collectRugHistoryEvidence({
+      link: 'https://x.com/project_b',
+      twitterToken: 'token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      client: { postOpen }
+    });
+
+    expect(evidence.checkedTweetCount).toBe(2);
+    expect(evidence.commentNegativeSamples).toEqual(['second tweet scam warning']);
+    expect(evidence.warnings.some((warning) => warning.includes('twitter_quote_tweets_by_id'))).toBe(true);
+  });
 });

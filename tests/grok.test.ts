@@ -45,8 +45,11 @@ describe('buildGrokPrompt', () => {
         deletedTweetCount: 2,
         negativeMentionCount: 3,
         recentTweetCount: 10,
+        commentNegativeCount: 2,
+        checkedTweetCount: 3,
         deletedTweetSamples: ['old mint failed'],
         negativeMentionSamples: ['@b rug?'],
+        commentNegativeSamples: ['quote rug warning', '@b 无法提现'],
         recentRiskSignals: ['近期多次提到 mint'],
         warnings: []
       }
@@ -54,7 +57,12 @@ describe('buildGrokPrompt', () => {
 
     expect(prompt).toContain('Rug 历史/风险');
     expect(prompt).toContain('删帖数量：2');
+    expect(prompt).toContain('检查推文数量：3');
+    expect(prompt).toContain('评论区负面数量：2');
     expect(prompt).toContain('@b rug?');
+    expect(prompt).toContain('quote rug warning');
     expect(prompt).toContain('近期多次提到 mint');
+    expect(prompt).not.toContain('source');
+    expect(prompt).not.toContain('数据源');
   });
 });
