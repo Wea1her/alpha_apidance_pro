@@ -47,9 +47,12 @@ export interface TriggerAnalysisOptions {
 function removeAnalysisSourceBlock(text: string): string {
   const lines = text.trim().split('\n');
   const sourceStart = lines.findIndex((line) =>
-    /^(?:source|sources|来源|参考来源|数据来源|引用列表)\s*[:：]/i.test(line.trim())
+    /^(?:#{1,6}\s*)?(?:source|sources|来源|参考来源|数据来源|引用列表)\s*[:：]?/i.test(line.trim())
   );
-  return (sourceStart >= 0 ? lines.slice(0, sourceStart) : lines).join('\n').trim();
+  return (sourceStart >= 0 ? lines.slice(0, sourceStart) : lines)
+    .map((line) => line.replace(/\s*\[\[\d+\]\]\([^)]+\)/g, ''))
+    .join('\n')
+    .trim();
 }
 
 export async function triggerAnalysisComment(options: TriggerAnalysisOptions): Promise<TelegramSendResult | void> {

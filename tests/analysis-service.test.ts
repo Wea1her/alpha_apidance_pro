@@ -129,10 +129,12 @@ describe('triggerAnalysisComment', () => {
 
     const reply = vi.fn().mockResolvedValue({ messageId: 556, chatId: -1003769834276 });
     const analyze = vi.fn().mockResolvedValue([
-      '1. 项目核心信息：test',
+      '1. 项目核心信息：test [[1]](https://example.com/report.pdf)',
       '2. 当前进展：early',
       '',
-      'Source: 6551'
+      '## Sources',
+      '[grok2api-sources]: #',
+      '- [Example](https://example.com)'
     ].join('\n'));
     const getRugHistory = vi.fn().mockResolvedValue({
       source: '6551',
