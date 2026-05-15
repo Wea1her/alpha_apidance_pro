@@ -35,5 +35,7 @@ describe('loadAnalysisSkill', () => {
     expect(DEFAULT_ANALYSIS_SKILL).toContain('接近 100 字');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('不要使用 Markdown 加粗');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('不要输出 * 号');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('章节标题单独一行');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('正文必须另起下一行');
   });
 });
