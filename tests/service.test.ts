@@ -304,6 +304,7 @@ describe('processAlphaMessage', () => {
     const afterSend = vi.fn();
     const dedupe = new Set<string>();
     const projectStars = new Map<string, number>();
+    const projectPushCounts = new Map<string, number>();
 
     await processAlphaMessage({
       raw: JSON.stringify({
@@ -317,6 +318,7 @@ describe('processAlphaMessage', () => {
       commonFollowStarLevels: [5, 8, 12, 15, 20],
       dedupe,
       projectStars,
+      projectPushCounts,
       send,
       afterSend
     });
@@ -333,6 +335,7 @@ describe('processAlphaMessage', () => {
       commonFollowStarLevels: [5, 8, 12, 15, 20],
       dedupe,
       projectStars,
+      projectPushCounts,
       send,
       afterSend
     });
@@ -340,7 +343,10 @@ describe('processAlphaMessage', () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(afterSend).toHaveBeenCalledTimes(2);
     expect(projectStars.get('b')).toBe(2);
-    expect(send.mock.calls[1][0].split('\n')[0]).toBe('检测到项目星级变化：1星 → 2星');
+    expect(projectPushCounts.get('b')).toBe(2);
+    expect(send.mock.calls[0][0].split('\n')[0]).toBe('第1次推送');
+    expect(send.mock.calls[1][0].split('\n')[0]).toBe('第2次推送');
+    expect(send.mock.calls[1][0].split('\n')[1]).toBe('检测到项目星级变化：1星 → 2星');
   });
 
   it('skips concurrent repeated project pushes below the max star level', async () => {
@@ -395,11 +401,13 @@ describe('processAlphaMessage', () => {
     const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
     const dedupe = new Set<string>();
     const projectStars = new Map<string, number>();
+    const projectPushCounts = new Map<string, number>();
     const baseInput = {
       receivedAt: new Date(1778660298123),
       commonFollowStarLevels: [5, 8, 12, 15, 20],
       dedupe,
       projectStars,
+      projectPushCounts,
       send
     };
 
@@ -426,6 +434,9 @@ describe('processAlphaMessage', () => {
 
     expect(send).toHaveBeenCalledTimes(2);
     expect(projectStars.get('altdotfun')).toBe(5);
-    expect(send.mock.calls[1][0].split('\n')[0]).toBe('⭐⭐⭐⭐⭐ Alpha 共同关注推送');
+    expect(projectPushCounts.get('altdotfun')).toBe(6);
+    expect(send.mock.calls[0][0].split('\n')[0]).toBe('第5次推送');
+    expect(send.mock.calls[1][0].split('\n')[0]).toBe('第6次推送');
+    expect(send.mock.calls[1][0].split('\n')[1]).toBe('⭐⭐⭐⭐⭐ Alpha 共同关注推送');
   });
 });

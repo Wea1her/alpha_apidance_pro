@@ -43,6 +43,7 @@ export interface ProcessAlphaMessageOptions {
   dedupe: Set<string>;
   inFlight?: Set<string>;
   projectStars?: Map<string, number>;
+  projectPushCounts?: Map<string, number>;
   send: (text: string) => Promise<TelegramSendResult>;
   classify?: (
     message: Record<string, unknown>,
@@ -97,10 +98,18 @@ function buildAnalysisTaskKey(channelChatId: number, channelMessageId: number): 
   return `${channelChatId}:${channelMessageId}`;
 }
 
+function calculateProjectPushCount(previousPushCount: number, star: number, maxStar: number): number {
+  if (star >= maxStar) {
+    return Math.max(previousPushCount + 1, maxStar);
+  }
+  return star;
+}
+
 function buildForwardMessage(
   message: Record<string, unknown>,
   count: number,
   starText: string,
+  pushCount: number,
   latencyMs: number | null,
   starChange?: { from: number; to: number }
 ): string {
@@ -109,6 +118,7 @@ function buildForwardMessage(
   const link = messageString(message, 'link');
   const latencyLine = latencyMs === null ? '' : `\n延迟：${(latencyMs / 1000).toFixed(3)} 秒`;
   return [
+    `第${pushCount}次推送`,
     starChange ? `检测到项目星级变化：${starChange.from}星 → ${starChange.to}星` : '',
     `${starText} Alpha 共同关注推送`,
     '',
@@ -174,6 +184,8 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
     }
     const starChange =
       previousStar > 0 && previousStar < decision.star ? { from: previousStar, to: decision.star } : undefined;
+    const previousPushCount = options.projectPushCounts?.get(projectKey) ?? previousStar;
+    const pushCount = calculateProjectPushCount(previousPushCount, decision.star, maxStar);
     if (options.projectStars && !isMaxStar) {
       options.projectStars.set(projectKey, decision.star);
     }
@@ -204,6 +216,7 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       message,
       count,
       decision.stars,
+      pushCount,
       calculateReceiveLatencyMs(message, options.receivedAt),
       starChange
     );
@@ -212,6 +225,7 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
     try {
       sendResult = await options.send(text);
       options.projectStars?.set(projectKey, decision.star);
+      options.projectPushCounts?.set(projectKey, pushCount);
       options.dedupe.add(dedupeKey);
     } catch (error) {
       if (options.projectStars && !isMaxStar) {
@@ -253,6 +267,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const dedupe = new Set<string>();
   const inFlight = new Set<string>();
   const projectStars = new Map<string, number>();
+  const projectPushCounts = new Map<string, number>();
   const analysisTracker = new AnalysisTracker();
   const wallet = new Wallet(options.config.alphaWalletPrivateKey);
   const factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
@@ -446,6 +461,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
           dedupe,
           inFlight,
           projectStars,
+          projectPushCounts,
           send: sendMainTelegramMessage,
           classify: async (message: Record<string, unknown>, count: number, star: number) => {
             const title = messageString(message, 'title');
