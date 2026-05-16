@@ -10,6 +10,7 @@ export interface RugHistoryEvidence {
   checkedTweetCount: number | null;
   negativeNoiseCount: number | null;
   deletedTweetSamples: string[];
+  contractDeletedTweetSamples: string[];
   negativeMentionSamples: string[];
   commentNegativeSamples: string[];
   negativeNoiseSamples: string[];
@@ -27,6 +28,8 @@ export interface CollectRugHistoryEvidenceOptions {
 
 type MutableEvidence = RugHistoryEvidence;
 const NEGATIVE_PATTERN = /rug|scam|drain|phishing|hacked|fraud|跑路|割|骗局|诈骗|钓鱼|黑客|归零|无法提现|退款/i;
+const CONTRACT_DELETED_TWEET_PATTERN =
+  /\bca\b|contract(?:\s+address)?|token\s+address|合约|合约地址|代币地址|地址|0x[a-fA-F0-9]{40}|\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/i;
 
 export function extractUsernameFromXLink(link: string): string | null {
   const matched = link.match(/^https?:\/\/(?:x|twitter)\.com\/([^/?#]+)/i);
@@ -44,6 +47,7 @@ function emptyEvidence(warnings: string[] = []): RugHistoryEvidence {
     checkedTweetCount: null,
     negativeNoiseCount: null,
     deletedTweetSamples: [],
+    contractDeletedTweetSamples: [],
     negativeMentionSamples: [],
     commentNegativeSamples: [],
     negativeNoiseSamples: [],
@@ -95,6 +99,10 @@ function negativeTexts(items: unknown[], limit = 20): string[] {
   return sampleTexts(items, limit).filter((text) => NEGATIVE_PATTERN.test(text));
 }
 
+function contractDeletedTweetTexts(items: unknown[], limit = 3): string[] {
+  return sampleTexts(items, items.length).filter((text) => CONTRACT_DELETED_TWEET_PATTERN.test(text)).slice(0, limit);
+}
+
 async function collectEndpoint(
   evidence: MutableEvidence,
   endpoint: string,
@@ -134,6 +142,7 @@ export async function collectRugHistoryEvidence(
     checkedTweetCount: null,
     negativeNoiseCount: null,
     deletedTweetSamples: [],
+    contractDeletedTweetSamples: [],
     negativeMentionSamples: [],
     commentNegativeSamples: [],
     negativeNoiseSamples: [],
@@ -147,9 +156,10 @@ export async function collectRugHistoryEvidence(
   });
 
   await collectEndpoint(evidence, 'twitter_deleted_tweets', async () => {
-    const items = responseItems(await client.postOpen('twitter_deleted_tweets', { username, maxResults: 20 }));
+    const items = responseItems(await client.postOpen('twitter_deleted_tweets', { username, maxResults: 100 }));
     evidence.deletedTweetCount = items.length;
     evidence.deletedTweetSamples = sampleTexts(items);
+    evidence.contractDeletedTweetSamples = contractDeletedTweetTexts(items);
   });
 
   await collectEndpoint(evidence, 'twitter_user_tweets', async () => {

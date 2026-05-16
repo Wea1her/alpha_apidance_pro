@@ -52,6 +52,38 @@ describe('rug history provider', () => {
     expect(evidence.negativeMentionSamples).toContain('@project_b rug?');
   });
 
+  it('extracts contract-related deleted tweet originals from up to 100 deleted tweets', async () => {
+    const postOpen = vi.fn(async (endpoint: string) => {
+      if (endpoint === 'twitter_deleted_tweets') {
+        return {
+          data: [
+            { text: 'old roadmap update' },
+            { text: 'CA: 0x1234567890abcdef1234567890abcdef12345678' },
+            { fullText: 'contract address will be updated soon' },
+            { text: '代币地址：So11111111111111111111111111111111111111112' },
+            { text: '合约已经发过，稍后删掉' }
+          ]
+        };
+      }
+      if (endpoint === 'twitter_search') return { data: [] };
+      return { data: [] };
+    });
+
+    const evidence = await collectRugHistoryEvidence({
+      link: 'https://x.com/project_b',
+      twitterToken: 'token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      client: { postOpen }
+    });
+
+    expect(postOpen).toHaveBeenCalledWith('twitter_deleted_tweets', { username: 'project_b', maxResults: 100 });
+    expect(evidence.contractDeletedTweetSamples).toEqual([
+      'CA: 0x1234567890abcdef1234567890abcdef12345678',
+      'contract address will be updated soon',
+      '代币地址：So11111111111111111111111111111111111111112'
+    ]);
+  });
+
   it('separates unrelated negative search noise from direct project risk evidence', async () => {
     const postOpen = vi.fn(async (endpoint: string, body: Record<string, unknown>) => {
       if (endpoint === 'twitter_user_tweets') return { data: [{ id: '1', text: 'building' }] };

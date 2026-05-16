@@ -71,7 +71,9 @@ function formatRugHistory(evidence: RugHistoryEvidence | undefined): string[] {
     '近期风险信号：',
     formatList(evidence.recentRiskSignals),
     '数据警告：',
-    formatList(evidence.warnings)
+    formatList(evidence.warnings),
+    '合约相关删帖原文：',
+    formatList(evidence.contractDeletedTweetSamples)
   ];
 }
 

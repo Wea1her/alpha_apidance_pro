@@ -52,6 +52,7 @@ describe('buildGrokPrompt', () => {
         negativeMentionSamples: ['@b rug?'],
         commentNegativeSamples: ['quote rug warning', '@b 无法提现'],
         negativeNoiseSamples: ['random scam coin'],
+        contractDeletedTweetSamples: ['CA: 0x1234567890abcdef1234567890abcdef12345678'],
         recentRiskSignals: ['近期多次提到 mint'],
         warnings: []
       }
@@ -68,6 +69,10 @@ describe('buildGrokPrompt', () => {
     expect(prompt).toContain('quote rug warning');
     expect(prompt).toContain('random scam coin');
     expect(prompt).toContain('近期多次提到 mint');
+    expect(prompt).toContain('合约相关删帖原文：');
+    expect(prompt).toContain('CA: 0x1234567890abcdef1234567890abcdef12345678');
+    expect(prompt.indexOf('合约相关删帖原文：')).toBeGreaterThan(prompt.indexOf('数据警告：'));
+    expect(prompt.indexOf('合约相关删帖原文：')).toBeLessThan(prompt.indexOf('分析 Skill：'));
     expect(prompt).not.toContain('source');
     expect(prompt).not.toContain('数据源');
   });
@@ -89,6 +94,7 @@ describe('buildGrokPrompt', () => {
         checkedTweetCount: 3,
         negativeNoiseCount: 0,
         deletedTweetSamples: [],
+        contractDeletedTweetSamples: [],
         negativeMentionSamples: [],
         commentNegativeSamples: [],
         negativeNoiseSamples: [],
@@ -118,6 +124,7 @@ describe('buildGrokPrompt', () => {
         checkedTweetCount: 3,
         negativeNoiseCount: 2,
         deletedTweetSamples: [],
+        contractDeletedTweetSamples: [],
         negativeMentionSamples: [],
         commentNegativeSamples: [],
         negativeNoiseSamples: ['random scam coin', 'unrelated rug warning'],
