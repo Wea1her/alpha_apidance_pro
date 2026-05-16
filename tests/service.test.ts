@@ -349,6 +349,55 @@ describe('processAlphaMessage', () => {
     expect(send.mock.calls[1][0].split('\n')[1]).toBe('检测到项目星级变化：1星 → 2星');
   });
 
+  it('links repeated channel pushes to the first channel push', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ chatId: -1001234567890, messageId: 321 })
+      .mockResolvedValueOnce({ chatId: -1001234567890, messageId: 456 });
+    const dedupe = new Set<string>();
+    const projectStars = new Map<string, number>();
+    const projectPushCounts = new Map<string, number>();
+    const projectFirstChannelMessages = new Map<string, { chatId: number; messageId: number }>();
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 B',
+        content: '你关注的5个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660297
+      }),
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      projectPushCounts,
+      projectFirstChannelMessages,
+      send
+    });
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'C 关注了 B',
+        content: '你关注的8个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660397
+      }),
+      receivedAt: new Date(1778660398123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      projectPushCounts,
+      projectFirstChannelMessages,
+      send
+    });
+
+    expect(projectFirstChannelMessages.get('b')).toEqual({ chatId: -1001234567890, messageId: 321 });
+    expect(send.mock.calls[0][0]).not.toContain('首次推送：');
+    expect(send.mock.calls[1][0].split('\n')).toContain('首次推送：https://t.me/c/1234567890/321');
+  });
+
   it('skips concurrent repeated project pushes below the max star level', async () => {
     const sendResolves: Array<(value: { chatId: number; messageId: number }) => void> = [];
     const send = vi.fn(

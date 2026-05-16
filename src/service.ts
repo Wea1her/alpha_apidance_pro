@@ -36,6 +36,11 @@ export interface ClassificationDecision {
   reason?: string;
 }
 
+export interface ChannelMessageReference {
+  chatId: number;
+  messageId: number;
+}
+
 export interface ProcessAlphaMessageOptions {
   raw: string;
   receivedAt: Date;
@@ -44,6 +49,7 @@ export interface ProcessAlphaMessageOptions {
   inFlight?: Set<string>;
   projectStars?: Map<string, number>;
   projectPushCounts?: Map<string, number>;
+  projectFirstChannelMessages?: Map<string, ChannelMessageReference>;
   send: (text: string) => Promise<TelegramSendResult>;
   classify?: (
     message: Record<string, unknown>,
@@ -105,11 +111,20 @@ function calculateProjectPushCount(previousPushCount: number, star: number, maxS
   return star;
 }
 
+function buildTelegramChannelMessageUrl(message: ChannelMessageReference): string | null {
+  const chatId = String(message.chatId);
+  if (!chatId.startsWith('-100')) return null;
+  const internalChannelId = chatId.slice(4);
+  if (!/^\d+$/.test(internalChannelId)) return null;
+  return `https://t.me/c/${internalChannelId}/${message.messageId}`;
+}
+
 function buildForwardMessage(
   message: Record<string, unknown>,
   count: number,
   starText: string,
   pushCount: number,
+  firstPushUrl: string | null,
   latencyMs: number | null,
   starChange?: { from: number; to: number }
 ): string {
@@ -119,6 +134,7 @@ function buildForwardMessage(
   const latencyLine = latencyMs === null ? '' : `\n延迟：${(latencyMs / 1000).toFixed(3)} 秒`;
   return [
     `第${pushCount}次推送`,
+    firstPushUrl ? `首次推送：${firstPushUrl}` : '',
     starChange ? `检测到项目星级变化：${starChange.from}星 → ${starChange.to}星` : '',
     `${starText} Alpha 共同关注推送`,
     '',
@@ -186,6 +202,9 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       previousStar > 0 && previousStar < decision.star ? { from: previousStar, to: decision.star } : undefined;
     const previousPushCount = options.projectPushCounts?.get(projectKey) ?? previousStar;
     const pushCount = calculateProjectPushCount(previousPushCount, decision.star, maxStar);
+    const firstChannelMessage = options.projectFirstChannelMessages?.get(projectKey) ?? null;
+    const firstPushUrl =
+      pushCount > 1 && firstChannelMessage ? buildTelegramChannelMessageUrl(firstChannelMessage) : null;
     if (options.projectStars && !isMaxStar) {
       options.projectStars.set(projectKey, decision.star);
     }
@@ -217,6 +236,7 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       count,
       decision.stars,
       pushCount,
+      firstPushUrl,
       calculateReceiveLatencyMs(message, options.receivedAt),
       starChange
     );
@@ -226,6 +246,9 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       sendResult = await options.send(text);
       options.projectStars?.set(projectKey, decision.star);
       options.projectPushCounts?.set(projectKey, pushCount);
+      if (!options.projectFirstChannelMessages?.has(projectKey)) {
+        options.projectFirstChannelMessages?.set(projectKey, sendResult);
+      }
       options.dedupe.add(dedupeKey);
     } catch (error) {
       if (options.projectStars && !isMaxStar) {
@@ -268,6 +291,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const inFlight = new Set<string>();
   const projectStars = new Map<string, number>();
   const projectPushCounts = new Map<string, number>();
+  const projectFirstChannelMessages = new Map<string, ChannelMessageReference>();
   const analysisTracker = new AnalysisTracker();
   const wallet = new Wallet(options.config.alphaWalletPrivateKey);
   const factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
@@ -462,6 +486,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
           inFlight,
           projectStars,
           projectPushCounts,
+          projectFirstChannelMessages,
           send: sendMainTelegramMessage,
           classify: async (message: Record<string, unknown>, count: number, star: number) => {
             const title = messageString(message, 'title');
