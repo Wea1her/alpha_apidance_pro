@@ -50,6 +50,7 @@ export interface ProcessAlphaMessageOptions {
   projectStars?: Map<string, number>;
   projectPushCounts?: Map<string, number>;
   projectFirstChannelMessages?: Map<string, ChannelMessageReference>;
+  projectLocks?: Map<string, Promise<void>>;
   send: (text: string) => Promise<TelegramSendResult>;
   classify?: (
     message: Record<string, unknown>,
@@ -102,6 +103,31 @@ function buildProjectKey(message: Record<string, unknown>): string {
 
 function buildAnalysisTaskKey(channelChatId: number, channelMessageId: number): string {
   return `${channelChatId}:${channelMessageId}`;
+}
+
+async function runWithProjectLock<T>(
+  locks: Map<string, Promise<void>> | undefined,
+  projectKey: string,
+  task: () => Promise<T>
+): Promise<T> {
+  if (!locks) return task();
+  const previous = locks.get(projectKey) ?? Promise.resolve();
+  let release: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => current);
+  locks.set(projectKey, tail);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release!();
+    if (locks.get(projectKey) === tail) {
+      locks.delete(projectKey);
+    }
+  }
 }
 
 function calculateProjectPushCount(previousPushCount: number, star: number, maxStar: number): number {
@@ -190,91 +216,109 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
 
   try {
     const projectKey = buildProjectKey(message);
-    const previousStar = options.projectStars?.get(projectKey) ?? 0;
-    const maxStar = options.commonFollowStarLevels.length;
-    const isMaxStar = decision.star >= maxStar;
-    if (!isMaxStar && previousStar >= decision.star) {
-      info(`项目星级未升高，跳过重复推送：project=${projectKey} previous=${previousStar} current=${decision.star}`);
-      options.dedupe.add(dedupeKey);
-      return;
-    }
-    const starChange =
-      previousStar > 0 && previousStar < decision.star ? { from: previousStar, to: decision.star } : undefined;
-    const previousPushCount = options.projectPushCounts?.get(projectKey) ?? previousStar;
-    const pushCount = calculateProjectPushCount(previousPushCount, decision.star, maxStar);
-    const firstChannelMessage = options.projectFirstChannelMessages?.get(projectKey) ?? null;
-    const firstPushUrl =
-      pushCount > 1 && firstChannelMessage ? buildTelegramChannelMessageUrl(firstChannelMessage) : null;
-    if (options.projectStars && !isMaxStar) {
-      options.projectStars.set(projectKey, decision.star);
-    }
-
-    if (options.classify) {
-      try {
-        const classification = await options.classify(message, count, decision.star);
-        const reason = classification.reason ? ` reason=${classification.reason}` : '';
-        if (!classification.allowPush) {
-          if (options.projectStars && !isMaxStar) {
-            if (previousStar > 0) {
-              options.projectStars.set(projectKey, previousStar);
-            } else {
-              options.projectStars.delete(projectKey);
-            }
-          }
-          options.dedupe.add(dedupeKey);
-          info(`账号分类拦截：type=${classification.type}${reason}`);
-          return;
-        }
-        info(`账号分类允许：type=${classification.type}${reason}`);
-      } catch (error) {
-        warn(`账号分类失败，按保守策略推送：${error instanceof Error ? error.message : String(error)}`);
+    await runWithProjectLock(options.projectLocks, projectKey, async () => {
+      const previousStar = options.projectStars?.get(projectKey) ?? 0;
+      const maxStar = options.commonFollowStarLevels.length;
+      const isMaxStar = decision.star >= maxStar;
+      if (!isMaxStar && previousStar >= decision.star) {
+        info(`项目星级未升高，跳过重复推送：project=${projectKey} previous=${previousStar} current=${decision.star}`);
+        options.dedupe.add(dedupeKey);
+        return;
       }
-    }
-
-    const text = buildForwardMessage(
-      message,
-      count,
-      decision.stars,
-      pushCount,
-      firstPushUrl,
-      calculateReceiveLatencyMs(message, options.receivedAt),
-      starChange
-    );
-
-    let sendResult: TelegramSendResult;
-    try {
-      sendResult = await options.send(text);
-      options.projectStars?.set(projectKey, decision.star);
-      options.projectPushCounts?.set(projectKey, pushCount);
-      if (!options.projectFirstChannelMessages?.has(projectKey)) {
-        options.projectFirstChannelMessages?.set(projectKey, sendResult);
-      }
-      options.dedupe.add(dedupeKey);
-    } catch (error) {
-      if (options.projectStars && !isMaxStar) {
-        if (previousStar > 0) {
-          options.projectStars.set(projectKey, previousStar);
+      const starChange =
+        previousStar > 0 && previousStar < decision.star ? { from: previousStar, to: decision.star } : undefined;
+      const previousPushCount = options.projectPushCounts?.get(projectKey) ?? previousStar;
+      const pushCount = calculateProjectPushCount(previousPushCount, decision.star, maxStar);
+      const firstChannelMessage = options.projectFirstChannelMessages?.get(projectKey) ?? null;
+      const firstPushUrl =
+        pushCount > 1 && firstChannelMessage ? buildTelegramChannelMessageUrl(firstChannelMessage) : null;
+      const hadPreviousPushCount = options.projectPushCounts?.has(projectKey) ?? false;
+      const rollbackReservedPushCount = (): void => {
+        if (!options.projectPushCounts || options.projectPushCounts.get(projectKey) !== pushCount) return;
+        if (hadPreviousPushCount) {
+          options.projectPushCounts.set(projectKey, previousPushCount);
         } else {
-          options.projectStars.delete(projectKey);
+          options.projectPushCounts.delete(projectKey);
+        }
+      };
+      options.projectPushCounts?.set(projectKey, pushCount);
+      if (options.projectStars && !isMaxStar) {
+        options.projectStars.set(projectKey, decision.star);
+      }
+
+      if (options.classify) {
+        try {
+          const classification = await options.classify(message, count, decision.star);
+          const reason = classification.reason ? ` reason=${classification.reason}` : '';
+          if (!classification.allowPush) {
+            if (options.projectStars && !isMaxStar) {
+              if (previousStar > 0) {
+                options.projectStars.set(projectKey, previousStar);
+              } else {
+                options.projectStars.delete(projectKey);
+              }
+            }
+            rollbackReservedPushCount();
+            options.dedupe.add(dedupeKey);
+            info(`账号分类拦截：type=${classification.type}${reason}`);
+            return;
+          }
+          info(`账号分类允许：type=${classification.type}${reason}`);
+        } catch (error) {
+          warn(`账号分类失败，按保守策略推送：${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      if (options.enqueueFailedMainPush) {
-        await options.enqueueFailedMainPush({
-          dedupeKey,
-          raw: options.raw,
-          text,
-          receivedAt: options.receivedAt.toISOString(),
-          count,
-          star: decision.star,
-          lastError: error instanceof Error ? error.message : String(error)
-        });
-      }
-      throw error;
-    }
 
-    if (options.afterSend) {
-      await options.afterSend(message, count, decision.star, sendResult);
-    }
+      const text = buildForwardMessage(
+        message,
+        count,
+        decision.stars,
+        pushCount,
+        firstPushUrl,
+        calculateReceiveLatencyMs(message, options.receivedAt),
+        starChange
+      );
+
+      let sendResult: TelegramSendResult;
+      try {
+        sendResult = await options.send(text);
+        options.projectStars?.set(projectKey, decision.star);
+        options.projectPushCounts?.set(projectKey, pushCount);
+        if (!options.projectFirstChannelMessages?.has(projectKey)) {
+          options.projectFirstChannelMessages?.set(projectKey, sendResult);
+        }
+        options.dedupe.add(dedupeKey);
+      } catch (error) {
+        let queuedFailedPush = false;
+        if (options.projectStars && !isMaxStar) {
+          if (previousStar > 0) {
+            options.projectStars.set(projectKey, previousStar);
+          } else {
+            options.projectStars.delete(projectKey);
+          }
+        }
+        if (options.enqueueFailedMainPush) {
+          await options.enqueueFailedMainPush({
+            dedupeKey,
+            raw: options.raw,
+            text,
+            receivedAt: options.receivedAt.toISOString(),
+            count,
+            star: decision.star,
+            lastError: error instanceof Error ? error.message : String(error)
+          });
+          queuedFailedPush = true;
+        }
+        if (!queuedFailedPush) {
+          rollbackReservedPushCount();
+        }
+        throw error;
+      }
+
+      if (options.afterSend) {
+        await options.afterSend(message, count, decision.star, sendResult);
+      }
+    });
   } finally {
     options.inFlight?.delete(dedupeKey);
   }
@@ -292,6 +336,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const projectStars = new Map<string, number>();
   const projectPushCounts = new Map<string, number>();
   const projectFirstChannelMessages = new Map<string, ChannelMessageReference>();
+  const projectLocks = new Map<string, Promise<void>>();
   const analysisTracker = new AnalysisTracker();
   const wallet = new Wallet(options.config.alphaWalletPrivateKey);
   const factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
@@ -341,13 +386,18 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     star: number,
     sendResult: TelegramSendResult
   ): Promise<void> => {
+    const projectKey = buildProjectKey(message);
+    if (!projectFirstChannelMessages.has(projectKey)) {
+      projectFirstChannelMessages.set(projectKey, sendResult);
+    }
+
     if (!options.config.xaiApiKey || !options.config.discussionChatId) {
       return;
     }
     const link = messageString(message, 'link');
     const task = {
       taskKey: buildAnalysisTaskKey(sendResult.chatId, sendResult.messageId),
-      projectKey: (parseChannelHandle(link) ?? link).toLowerCase(),
+      projectKey,
       channelChatId: sendResult.chatId,
       channelMessageId: sendResult.messageId,
       title: messageString(message, 'title'),
@@ -487,6 +537,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
           projectStars,
           projectPushCounts,
           projectFirstChannelMessages,
+          projectLocks,
           send: sendMainTelegramMessage,
           classify: async (message: Record<string, unknown>, count: number, star: number) => {
             const title = messageString(message, 'title');

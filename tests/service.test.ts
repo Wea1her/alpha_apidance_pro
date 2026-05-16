@@ -401,7 +401,7 @@ describe('processAlphaMessage', () => {
   it('skips concurrent repeated project pushes below the max star level', async () => {
     const sendResolves: Array<(value: { chatId: number; messageId: number }) => void> = [];
     const send = vi.fn(
-      () =>
+      (_text: string) =>
         new Promise<{ chatId: number; messageId: number }>((resolve) => {
           sendResolves.push(resolve);
         })
@@ -487,5 +487,119 @@ describe('processAlphaMessage', () => {
     expect(send.mock.calls[0][0].split('\n')[0]).toBe('第5次推送');
     expect(send.mock.calls[1][0].split('\n')[0]).toBe('第6次推送');
     expect(send.mock.calls[1][0].split('\n')[1]).toBe('⭐⭐⭐⭐⭐ Alpha 共同关注推送');
+  });
+
+  it('reserves increasing push counts for concurrent max-star project pushes', async () => {
+    const sendResolves: Array<(value: { chatId: number; messageId: number }) => void> = [];
+    const send = vi.fn(
+      (_text: string) =>
+        new Promise<{ chatId: number; messageId: number }>((resolve) => {
+          sendResolves.push(resolve);
+        })
+    );
+    const dedupe = new Set<string>();
+    const projectStars = new Map<string, number>();
+    const projectPushCounts = new Map<string, number>();
+    const baseInput = {
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      projectPushCounts,
+      send
+    };
+
+    const first = processAlphaMessage({
+      ...baseInput,
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 alt.fun',
+        content: '你关注的46个用户也关注了ta',
+        link: 'https://x.com/altdotfun',
+        push_at: 1778660297
+      })
+    });
+    const second = processAlphaMessage({
+      ...baseInput,
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'C 关注了 alt.fun',
+        content: '你关注的46个用户也关注了ta',
+        link: 'https://x.com/altdotfun',
+        push_at: 1778660397
+      })
+    });
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0][0].split('\n')[0]).toBe('第5次推送');
+    expect(send.mock.calls[1][0].split('\n')[0]).toBe('第6次推送');
+
+    for (const resolve of sendResolves) {
+      resolve({ chatId: -1001, messageId: 10 });
+    }
+    await Promise.all([first, second]);
+
+    expect(projectPushCounts.get('altdotfun')).toBe(6);
+  });
+
+  it('links concurrent repeated max-star pushes after the first channel message is created', async () => {
+    const sendResolves: Array<(value: { chatId: number; messageId: number }) => void> = [];
+    const send = vi.fn(
+      (_text: string) =>
+        new Promise<{ chatId: number; messageId: number }>((resolve) => {
+          sendResolves.push(resolve);
+        })
+    );
+    const dedupe = new Set<string>();
+    const projectStars = new Map<string, number>();
+    const projectPushCounts = new Map<string, number>();
+    const projectFirstChannelMessages = new Map<string, { chatId: number; messageId: number }>();
+    const projectLocks = new Map<string, Promise<void>>();
+    const baseInput = {
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe,
+      projectStars,
+      projectPushCounts,
+      projectFirstChannelMessages,
+      projectLocks,
+      send
+    };
+
+    const first = processAlphaMessage({
+      ...baseInput,
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 alt.fun',
+        content: '你关注的46个用户也关注了ta',
+        link: 'https://x.com/altdotfun',
+        push_at: 1778660297
+      })
+    });
+    await Promise.resolve();
+
+    const second = processAlphaMessage({
+      ...baseInput,
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'C 关注了 alt.fun',
+        content: '你关注的46个用户也关注了ta',
+        link: 'https://x.com/altdotfun',
+        push_at: 1778660397
+      })
+    });
+    await Promise.resolve();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    sendResolves[0]({ chatId: -1001234567890, messageId: 321 });
+    await first;
+    await Promise.resolve();
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0].split('\n')[0]).toBe('第6次推送');
+    expect(send.mock.calls[1][0].split('\n')).toContain('首次推送：https://t.me/c/1234567890/321');
+
+    sendResolves[1]({ chatId: -1001234567890, messageId: 456 });
+    await second;
   });
 });
