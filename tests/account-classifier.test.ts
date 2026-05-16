@@ -23,6 +23,10 @@ describe('account classifier', () => {
     expect(prompt).toContain('KOL');
     expect(prompt).toContain('MEDIA');
     expect(prompt).toContain('DEV');
+    expect(prompt).toContain('Meme Degen');
+    expect(prompt).toContain('memer');
+    expect(prompt).toContain('speculator');
+    expect(prompt).toContain('meme 项目官方账号');
     expect(prompt).toContain('https://x.com/project_b');
   });
 
