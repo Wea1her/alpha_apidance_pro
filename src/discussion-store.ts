@@ -8,9 +8,13 @@ export class DiscussionMappingStore {
   private readonly mappings = new Map<string, DiscussionMapping>();
   private readonly waiters = new Map<string, Array<(mapping: DiscussionMapping) => void>>();
 
-  ingest(mappings: DiscussionMapping[]): void {
+  ingest(mappings: DiscussionMapping[]): number {
+    let inserted = 0;
     for (const mapping of mappings) {
       const key = mappingKey(mapping.channelChatId, mapping.channelMessageId);
+      if (!this.mappings.has(key)) {
+        inserted += 1;
+      }
       this.mappings.set(key, mapping);
       const waiters = this.waiters.get(key);
       if (!waiters) continue;
@@ -19,6 +23,7 @@ export class DiscussionMappingStore {
         resolve(mapping);
       }
     }
+    return inserted;
   }
 
   get(channelChatId: number, channelMessageId: number): DiscussionMapping | null {

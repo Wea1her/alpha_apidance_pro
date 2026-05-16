@@ -24,6 +24,14 @@ export interface ServiceConfig {
   telegramRetryAttempts: number;
   telegramRetryMinDelayMs: number;
   telegramRetryMaxDelayMs: number;
+  failedQueuePath: string;
+  failedQueueDeadLetterPath: string;
+  failedQueueRetryIntervalMs: number;
+  failedQueueMaxAttempts: number;
+  analysisQueuePath: string;
+  analysisQueueDeadLetterPath: string;
+  analysisQueueRetryIntervalMs: number;
+  analysisQueueMaxAttempts: number;
 }
 
 type EnvLike = Record<string, string | undefined>;
@@ -69,6 +77,14 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     reconnectMaxDelayMs: parsePositiveInteger(env, 'ALPHA_RECONNECT_MAX_DELAY_MS', 30_000),
     telegramRetryAttempts: parsePositiveInteger(env, 'TELEGRAM_RETRY_ATTEMPTS', 5),
     telegramRetryMinDelayMs: parsePositiveInteger(env, 'TELEGRAM_RETRY_MIN_DELAY_MS', 1_000),
-    telegramRetryMaxDelayMs: parsePositiveInteger(env, 'TELEGRAM_RETRY_MAX_DELAY_MS', 30_000)
+    telegramRetryMaxDelayMs: parsePositiveInteger(env, 'TELEGRAM_RETRY_MAX_DELAY_MS', 30_000),
+    failedQueuePath: env.FAILED_QUEUE_PATH?.trim() || 'data/failed-messages.jsonl',
+    failedQueueDeadLetterPath: env.FAILED_QUEUE_DEAD_LETTER_PATH?.trim() || 'data/dead-letter-messages.jsonl',
+    failedQueueRetryIntervalMs: parsePositiveInteger(env, 'FAILED_QUEUE_RETRY_INTERVAL_MS', 30_000),
+    failedQueueMaxAttempts: parsePositiveInteger(env, 'FAILED_QUEUE_MAX_ATTEMPTS', 20),
+    analysisQueuePath: env.ANALYSIS_QUEUE_PATH?.trim() || 'data/analysis-tasks.jsonl',
+    analysisQueueDeadLetterPath: env.ANALYSIS_QUEUE_DEAD_LETTER_PATH?.trim() || 'data/analysis-dead-letter.jsonl',
+    analysisQueueRetryIntervalMs: parsePositiveInteger(env, 'ANALYSIS_QUEUE_RETRY_INTERVAL_MS', 30_000),
+    analysisQueueMaxAttempts: parsePositiveInteger(env, 'ANALYSIS_QUEUE_MAX_ATTEMPTS', 30)
   };
 }

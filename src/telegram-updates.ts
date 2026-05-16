@@ -69,6 +69,7 @@ export async function fetchTelegramUpdates(options: {
   botToken: string;
   proxyUrl?: string;
   offset?: number;
+  timeoutSeconds?: number;
   fetch?: typeof fetch;
   retryAttempts?: number;
   retryMinDelayMs?: number;
@@ -80,6 +81,9 @@ export async function fetchTelegramUpdates(options: {
   const url = new URL(`https://api.telegram.org/bot${options.botToken}/getUpdates`);
   if (typeof options.offset === 'number') {
     url.searchParams.set('offset', String(options.offset));
+  }
+  if (typeof options.timeoutSeconds === 'number' && options.timeoutSeconds > 0) {
+    url.searchParams.set('timeout', String(options.timeoutSeconds));
   }
   return retry(
     async () => {

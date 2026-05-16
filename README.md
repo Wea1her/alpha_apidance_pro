@@ -86,6 +86,14 @@ DISCUSSION_CHAT_ID=
 TELEGRAM_RETRY_ATTEMPTS=5
 TELEGRAM_RETRY_MIN_DELAY_MS=1000
 TELEGRAM_RETRY_MAX_DELAY_MS=30000
+FAILED_QUEUE_PATH=data/failed-messages.jsonl
+FAILED_QUEUE_DEAD_LETTER_PATH=data/dead-letter-messages.jsonl
+FAILED_QUEUE_RETRY_INTERVAL_MS=30000
+FAILED_QUEUE_MAX_ATTEMPTS=20
+ANALYSIS_QUEUE_PATH=data/analysis-tasks.jsonl
+ANALYSIS_QUEUE_DEAD_LETTER_PATH=data/analysis-dead-letter.jsonl
+ANALYSIS_QUEUE_RETRY_INTERVAL_MS=30000
+ANALYSIS_QUEUE_MAX_ATTEMPTS=30
 
 PROXY_URL=
 
@@ -116,6 +124,22 @@ TWITTER_API_BASE_URL=https://ai.6551.io
 `DISCUSSION_CHAT_ID` 是频道关联讨论群 ID，用于写入 Grok 分析和重复命中提醒。
 
 `TELEGRAM_RETRY_ATTEMPTS`、`TELEGRAM_RETRY_MIN_DELAY_MS`、`TELEGRAM_RETRY_MAX_DELAY_MS` 控制 Telegram 主推送、讨论群回复和 updates 轮询的短重试。默认是 5 次，1 秒起步，最高 30 秒。
+
+`FAILED_QUEUE_PATH` 是主频道推送最终失败后的本地补偿队列文件，默认 `data/failed-messages.jsonl`。
+
+`FAILED_QUEUE_DEAD_LETTER_PATH` 是超过最大补发次数后的死信文件，默认 `data/dead-letter-messages.jsonl`。
+
+`FAILED_QUEUE_RETRY_INTERVAL_MS` 是后台补偿 worker 扫描间隔，默认 30 秒。
+
+`FAILED_QUEUE_MAX_ATTEMPTS` 是单条失败消息进入死信队列前的最大补发次数，默认 20 次。
+
+`ANALYSIS_QUEUE_PATH` 是讨论群分析补偿队列文件，默认 `data/analysis-tasks.jsonl`。
+
+`ANALYSIS_QUEUE_DEAD_LETTER_PATH` 是讨论群分析超过最大补发次数后的死信文件，默认 `data/analysis-dead-letter.jsonl`。
+
+`ANALYSIS_QUEUE_RETRY_INTERVAL_MS` 是分析补偿 worker 扫描间隔，默认 30 秒。
+
+`ANALYSIS_QUEUE_MAX_ATTEMPTS` 是单条分析任务进入死信队列前的最大补发次数，默认 30 次。
 
 `PROXY_URL` 是代理地址。服务器没有代理时留空；如果服务器本机跑 Clash，可以填 `http://127.0.0.1:7890`。
 
@@ -410,6 +434,11 @@ heartbeat 超时主动重连
 登录失败自动重试
 Telegram 主推送 fetch failed 自动重试
 Telegram 讨论群回复和 updates 轮询自动重试
+Telegram 主推送最终失败后写入本地补偿队列
+后台 worker 定时补发失败主推送，成功后继续触发分析流程
+超过最大补发次数进入死信队列
+讨论群分析任务异步入队，不阻塞主推送成功判定
+讨论群映射缺失、Grok 失败、评论回复失败都会进入分析补偿队列
 事件级重复消息去重
 项目级升星重复推送
 账号分类失败时保守推送

@@ -17,8 +17,17 @@ import { buildCommonFollowDecision } from './common-follow-rules.js';
 import type { ServiceConfig } from './config.js';
 import { triggerAnalysisComment } from './analysis-service.js';
 import { AnalysisTracker } from './analysis-tracker.js';
+import {
+  AnalysisTaskQueue,
+  startAnalysisRetryWorker
+} from './analysis-task-queue.js';
 import { DiscussionMappingStore } from './discussion-store.js';
 import { startDiscussionPoller } from './discussion-poller.js';
+import {
+  FailedMessageQueue,
+  startFailedMessageRetryWorker,
+  type FailedMainPushInput
+} from './failed-message-queue.js';
 import { sendTelegramMessage, type TelegramSendResult } from './telegram.js';
 
 export interface ClassificationDecision {
@@ -32,6 +41,7 @@ export interface ProcessAlphaMessageOptions {
   receivedAt: Date;
   commonFollowStarLevels: readonly number[];
   dedupe: Set<string>;
+  inFlight?: Set<string>;
   projectStars?: Map<string, number>;
   send: (text: string) => Promise<TelegramSendResult>;
   classify?: (
@@ -45,6 +55,7 @@ export interface ProcessAlphaMessageOptions {
     star: number,
     sendResult: TelegramSendResult
   ) => Promise<void>;
+  enqueueFailedMainPush?: (record: FailedMainPushInput) => Promise<void>;
   info?: (message: string) => void;
   warn?: (message: string) => void;
 }
@@ -80,6 +91,10 @@ function buildProjectKey(message: Record<string, unknown>): string {
   if (handle) return handle.toLowerCase();
   if (link) return link.toLowerCase();
   return (messageString(message, 'title') || 'unknown').trim().toLowerCase();
+}
+
+function buildAnalysisTaskKey(channelChatId: number, channelMessageId: number): string {
+  return `${channelChatId}:${channelMessageId}`;
 }
 
 function buildForwardMessage(
@@ -141,67 +156,90 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
     info(`重复事件已跳过：${dedupeKey}`);
     return;
   }
-  options.dedupe.add(dedupeKey);
-
-  const projectKey = buildProjectKey(message);
-  const previousStar = options.projectStars?.get(projectKey) ?? 0;
-  const maxStar = options.commonFollowStarLevels.length;
-  const isMaxStar = decision.star >= maxStar;
-  if (!isMaxStar && previousStar >= decision.star) {
-    info(`项目星级未升高，跳过重复推送：project=${projectKey} previous=${previousStar} current=${decision.star}`);
+  if (options.inFlight?.has(dedupeKey)) {
+    info(`事件正在处理中，跳过重复并发：${dedupeKey}`);
     return;
   }
-  const starChange = previousStar > 0 && previousStar < decision.star ? { from: previousStar, to: decision.star } : undefined;
-  if (options.projectStars && !isMaxStar) {
-    options.projectStars.set(projectKey, decision.star);
-  }
+  options.inFlight?.add(dedupeKey);
 
-  if (options.classify) {
-    try {
-      const classification = await options.classify(message, count, decision.star);
-      const reason = classification.reason ? ` reason=${classification.reason}` : '';
-      if (!classification.allowPush) {
-        if (options.projectStars && !isMaxStar) {
-          if (previousStar > 0) {
-            options.projectStars.set(projectKey, previousStar);
-          } else {
-            options.projectStars.delete(projectKey);
-          }
-        }
-        info(`账号分类拦截：type=${classification.type}${reason}`);
-        return;
-      }
-      info(`账号分类允许：type=${classification.type}${reason}`);
-    } catch (error) {
-      warn(`账号分类失败，按保守策略推送：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  let sendResult: TelegramSendResult;
   try {
-    sendResult = await options.send(
-      buildForwardMessage(
-        message,
-        count,
-        decision.stars,
-        calculateReceiveLatencyMs(message, options.receivedAt),
-        starChange
-      )
-    );
-    options.projectStars?.set(projectKey, decision.star);
-  } catch (error) {
+    const projectKey = buildProjectKey(message);
+    const previousStar = options.projectStars?.get(projectKey) ?? 0;
+    const maxStar = options.commonFollowStarLevels.length;
+    const isMaxStar = decision.star >= maxStar;
+    if (!isMaxStar && previousStar >= decision.star) {
+      info(`项目星级未升高，跳过重复推送：project=${projectKey} previous=${previousStar} current=${decision.star}`);
+      options.dedupe.add(dedupeKey);
+      return;
+    }
+    const starChange =
+      previousStar > 0 && previousStar < decision.star ? { from: previousStar, to: decision.star } : undefined;
     if (options.projectStars && !isMaxStar) {
-      if (previousStar > 0) {
-        options.projectStars.set(projectKey, previousStar);
-      } else {
-        options.projectStars.delete(projectKey);
+      options.projectStars.set(projectKey, decision.star);
+    }
+
+    if (options.classify) {
+      try {
+        const classification = await options.classify(message, count, decision.star);
+        const reason = classification.reason ? ` reason=${classification.reason}` : '';
+        if (!classification.allowPush) {
+          if (options.projectStars && !isMaxStar) {
+            if (previousStar > 0) {
+              options.projectStars.set(projectKey, previousStar);
+            } else {
+              options.projectStars.delete(projectKey);
+            }
+          }
+          options.dedupe.add(dedupeKey);
+          info(`账号分类拦截：type=${classification.type}${reason}`);
+          return;
+        }
+        info(`账号分类允许：type=${classification.type}${reason}`);
+      } catch (error) {
+        warn(`账号分类失败，按保守策略推送：${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    throw error;
-  }
 
-  if (options.afterSend) {
-    await options.afterSend(message, count, decision.star, sendResult);
+    const text = buildForwardMessage(
+      message,
+      count,
+      decision.stars,
+      calculateReceiveLatencyMs(message, options.receivedAt),
+      starChange
+    );
+
+    let sendResult: TelegramSendResult;
+    try {
+      sendResult = await options.send(text);
+      options.projectStars?.set(projectKey, decision.star);
+      options.dedupe.add(dedupeKey);
+    } catch (error) {
+      if (options.projectStars && !isMaxStar) {
+        if (previousStar > 0) {
+          options.projectStars.set(projectKey, previousStar);
+        } else {
+          options.projectStars.delete(projectKey);
+        }
+      }
+      if (options.enqueueFailedMainPush) {
+        await options.enqueueFailedMainPush({
+          dedupeKey,
+          raw: options.raw,
+          text,
+          receivedAt: options.receivedAt.toISOString(),
+          count,
+          star: decision.star,
+          lastError: error instanceof Error ? error.message : String(error)
+        });
+      }
+      throw error;
+    }
+
+    if (options.afterSend) {
+      await options.afterSend(message, count, decision.star, sendResult);
+    }
+  } finally {
+    options.inFlight?.delete(dedupeKey);
   }
 }
 
@@ -213,6 +251,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const info = options.info ?? console.info;
   const warn = options.warn ?? console.warn;
   const dedupe = new Set<string>();
+  const inFlight = new Set<string>();
   const projectStars = new Map<string, number>();
   const analysisTracker = new AnalysisTracker();
   const wallet = new Wallet(options.config.alphaWalletPrivateKey);
@@ -225,6 +264,143 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     retryAttempts: options.config.telegramRetryAttempts,
     retryMinDelayMs: options.config.telegramRetryMinDelayMs,
     retryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
+    info,
+    warn
+  });
+  const failedQueue = new FailedMessageQueue({
+    filePath: options.config.failedQueuePath,
+    deadLetterPath: options.config.failedQueueDeadLetterPath,
+    maxAttempts: options.config.failedQueueMaxAttempts
+  });
+  const analysisQueue = new AnalysisTaskQueue({
+    filePath: options.config.analysisQueuePath,
+    deadLetterPath: options.config.analysisQueueDeadLetterPath,
+    maxAttempts: options.config.analysisQueueMaxAttempts
+  });
+
+  const sendMainTelegramMessage = (text: string): Promise<TelegramSendResult> =>
+    sendTelegramMessage({
+      botToken: options.config.telegramBotToken,
+      chatId: options.config.telegramChatId,
+      text,
+      proxyUrl: options.config.proxyUrl,
+      retryAttempts: options.config.telegramRetryAttempts,
+      retryMinDelayMs: options.config.telegramRetryMinDelayMs,
+      retryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
+      onRetry: (error, attempt, delayMs) => {
+        warn(
+          `Telegram 主推送失败，${delayMs}ms 后重试：attempt=${attempt} error=${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    });
+
+  const handleAfterMainSend = async (
+    message: Record<string, unknown>,
+    count: number,
+    star: number,
+    sendResult: TelegramSendResult
+  ): Promise<void> => {
+    if (!options.config.xaiApiKey || !options.config.discussionChatId) {
+      return;
+    }
+    const link = messageString(message, 'link');
+    const task = {
+      taskKey: buildAnalysisTaskKey(sendResult.chatId, sendResult.messageId),
+      projectKey: (parseChannelHandle(link) ?? link).toLowerCase(),
+      channelChatId: sendResult.chatId,
+      channelMessageId: sendResult.messageId,
+      title: messageString(message, 'title'),
+      content: messageString(message, 'content'),
+      link,
+      count,
+      star
+    };
+    await analysisQueue.enqueue(task);
+    info(`主推送成功，已写入分析补偿队列：taskKey=${task.taskKey}`);
+  };
+
+  const processAnalysisTask = async (
+    task: {
+      taskKey: string;
+      projectKey: string;
+      channelChatId: number;
+      channelMessageId: number;
+      title: string;
+      content: string;
+      link: string;
+      count: number;
+      star: number;
+    }
+  ): Promise<{ status: 'done' | 'retry'; reason?: string }> => {
+    if (!options.config.xaiApiKey) {
+      return { status: 'done' };
+    }
+    if (!options.config.discussionChatId) {
+      return { status: 'done' };
+    }
+
+    const existingAnalysis = analysisTracker.get(task.projectKey);
+    if (!existingAnalysis && !discussionStore.get(task.channelChatId, task.channelMessageId)) {
+      return { status: 'retry', reason: 'discussion mapping pending' };
+    }
+
+    const result = await triggerAnalysisComment({
+      xaiApiKey: options.config.xaiApiKey,
+      xaiBaseUrl: options.config.xaiBaseUrl,
+      xaiModel: options.config.xaiModel,
+      twitterToken: options.config.twitterToken,
+      twitterApiBaseUrl: options.config.twitterApiBaseUrl,
+      proxyUrl: options.config.proxyUrl,
+      discussionChatId: options.config.discussionChatId,
+      telegramRetryAttempts: options.config.telegramRetryAttempts,
+      telegramRetryMinDelayMs: options.config.telegramRetryMinDelayMs,
+      telegramRetryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
+      discussionStore,
+      botToken: options.config.telegramBotToken,
+      channelChatId: task.channelChatId,
+      channelMessageId: task.channelMessageId,
+      projectKey: task.projectKey,
+      existingAnalysis,
+      title: task.title,
+      content: task.content,
+      link: task.link,
+      count: task.count,
+      star: task.star,
+      info,
+      warn
+    });
+
+    if (!existingAnalysis && result && typeof result.messageId === 'number') {
+      analysisTracker.set(task.projectKey, {
+        discussionChatId: options.config.discussionChatId!,
+        analysisMessageId: result.messageId
+      });
+      return { status: 'done' };
+    }
+
+    if (!existingAnalysis && !result) {
+      return { status: 'retry', reason: 'analysis result not ready' };
+    }
+
+    return { status: 'done' };
+  };
+
+  const stopFailedRetryWorker = startFailedMessageRetryWorker({
+    queue: failedQueue,
+    intervalMs: options.config.failedQueueRetryIntervalMs,
+    delivered: dedupe,
+    inFlight,
+    send: sendMainTelegramMessage,
+    afterDelivered: handleAfterMainSend,
+    info,
+    warn
+  });
+  const stopAnalysisRetryWorker = startAnalysisRetryWorker({
+    queue: analysisQueue,
+    intervalMs: options.config.analysisQueueRetryIntervalMs,
+    process: processAnalysisTask,
     info,
     warn
   });
@@ -268,28 +444,13 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
           receivedAt,
           commonFollowStarLevels: options.config.commonFollowStarLevels,
           dedupe,
+          inFlight,
           projectStars,
-          send: (text) =>
-            sendTelegramMessage({
-              botToken: options.config.telegramBotToken,
-              chatId: options.config.telegramChatId,
-              text,
-              proxyUrl: options.config.proxyUrl,
-              retryAttempts: options.config.telegramRetryAttempts,
-              retryMinDelayMs: options.config.telegramRetryMinDelayMs,
-              retryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
-              onRetry: (error, attempt, delayMs) => {
-                warn(
-                  `Telegram 主推送失败，${delayMs}ms 后重试：attempt=${attempt} error=${
-                    error instanceof Error ? error.message : String(error)
-                  }`
-                );
-              }
-            }),
+          send: sendMainTelegramMessage,
           classify: async (message: Record<string, unknown>, count: number, star: number) => {
-            const link = messageString(message, 'link');
             const title = messageString(message, 'title');
             const content = messageString(message, 'content');
+            const link = messageString(message, 'link');
             const result = await classifyAccount({
               xaiApiKey: options.config.xaiApiKey,
               xaiBaseUrl: options.config.xaiBaseUrl,
@@ -307,50 +468,10 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
               reason: result.reason
             };
           },
-          afterSend: async (
-            message: Record<string, unknown>,
-            count: number,
-            star: number,
-            sendResult: TelegramSendResult
-          ) => {
-            const link = messageString(message, 'link');
-            const title = messageString(message, 'title');
-            const content = messageString(message, 'content');
-            const handle = parseChannelHandle(link) ?? link;
-            const existingAnalysis = analysisTracker.get(handle);
-
-            const result = await triggerAnalysisComment({
-              xaiApiKey: options.config.xaiApiKey,
-              xaiBaseUrl: options.config.xaiBaseUrl,
-              xaiModel: options.config.xaiModel,
-              twitterToken: options.config.twitterToken,
-              twitterApiBaseUrl: options.config.twitterApiBaseUrl,
-              proxyUrl: options.config.proxyUrl,
-              discussionChatId: options.config.discussionChatId,
-              telegramRetryAttempts: options.config.telegramRetryAttempts,
-              telegramRetryMinDelayMs: options.config.telegramRetryMinDelayMs,
-              telegramRetryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
-              discussionStore,
-              botToken: options.config.telegramBotToken,
-              channelChatId: sendResult.chatId,
-              channelMessageId: sendResult.messageId,
-              projectKey: handle,
-              existingAnalysis,
-              title,
-              content,
-              link,
-              count,
-              star,
-              info,
-              warn
-            });
-
-            if (!existingAnalysis && result && typeof result.messageId === 'number') {
-              analysisTracker.set(handle, {
-                discussionChatId: options.config.discussionChatId!,
-                analysisMessageId: result.messageId
-              });
-            }
+          afterSend: handleAfterMainSend,
+          enqueueFailedMainPush: async (record) => {
+            await failedQueue.enqueue(record);
+            warn(`主推送失败已写入补偿队列：dedupeKey=${record.dedupeKey} error=${record.lastError ?? ''}`);
           },
           info,
           warn
@@ -403,6 +524,8 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   return () => {
     stopped = true;
     stopDiscussionPoller();
+    stopFailedRetryWorker();
+    stopAnalysisRetryWorker();
     clearHeartbeatTimer();
     if (reconnectTimer) clearTimeout(reconnectTimer);
     socket?.close();

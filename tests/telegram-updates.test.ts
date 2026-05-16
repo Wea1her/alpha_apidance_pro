@@ -82,4 +82,22 @@ describe('fetchTelegramUpdates', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('passes long polling timeout to getUpdates when provided', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        ok: true,
+        result: []
+      })
+    });
+
+    await fetchTelegramUpdates({
+      botToken: 'token',
+      fetch: fetchMock as unknown as typeof fetch,
+      timeoutSeconds: 30
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toContain('timeout=30');
+  });
 });

@@ -21,7 +21,15 @@ describe('parseServiceConfig', () => {
       twitterApiBaseUrl: 'https://example.6551',
       telegramRetryAttempts: 5,
       telegramRetryMinDelayMs: 1000,
-      telegramRetryMaxDelayMs: 30000
+      telegramRetryMaxDelayMs: 30000,
+      failedQueuePath: 'data/failed-messages.jsonl',
+      failedQueueDeadLetterPath: 'data/dead-letter-messages.jsonl',
+      failedQueueRetryIntervalMs: 30000,
+      failedQueueMaxAttempts: 20,
+      analysisQueuePath: 'data/analysis-tasks.jsonl',
+      analysisQueueDeadLetterPath: 'data/analysis-dead-letter.jsonl',
+      analysisQueueRetryIntervalMs: 30000,
+      analysisQueueMaxAttempts: 30
     });
   });
 
@@ -62,5 +70,43 @@ describe('parseServiceConfig', () => {
         TELEGRAM_BOT_TOKEN: 'bot-token'
       })
     ).toThrow('TELEGRAM_CHAT_ID is required');
+  });
+
+  it('parses failed queue config', () => {
+    expect(
+      parseServiceConfig({
+        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+        TELEGRAM_CHAT_ID: '-100123',
+        FAILED_QUEUE_PATH: 'data/custom-failed.jsonl',
+        FAILED_QUEUE_DEAD_LETTER_PATH: 'data/custom-dead.jsonl',
+        FAILED_QUEUE_RETRY_INTERVAL_MS: '15000',
+        FAILED_QUEUE_MAX_ATTEMPTS: '7'
+      })
+    ).toMatchObject({
+      failedQueuePath: 'data/custom-failed.jsonl',
+      failedQueueDeadLetterPath: 'data/custom-dead.jsonl',
+      failedQueueRetryIntervalMs: 15000,
+      failedQueueMaxAttempts: 7
+    });
+  });
+
+  it('parses analysis queue config', () => {
+    expect(
+      parseServiceConfig({
+        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+        TELEGRAM_CHAT_ID: '-100123',
+        ANALYSIS_QUEUE_PATH: 'data/custom-analysis.jsonl',
+        ANALYSIS_QUEUE_DEAD_LETTER_PATH: 'data/custom-analysis-dead.jsonl',
+        ANALYSIS_QUEUE_RETRY_INTERVAL_MS: '45000',
+        ANALYSIS_QUEUE_MAX_ATTEMPTS: '11'
+      })
+    ).toMatchObject({
+      analysisQueuePath: 'data/custom-analysis.jsonl',
+      analysisQueueDeadLetterPath: 'data/custom-analysis-dead.jsonl',
+      analysisQueueRetryIntervalMs: 45000,
+      analysisQueueMaxAttempts: 11
+    });
   });
 });

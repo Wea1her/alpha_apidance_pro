@@ -193,6 +193,43 @@ describe('processAlphaMessage', () => {
     expect(afterSend).toHaveBeenCalledTimes(1);
   });
 
+  it('queues main telegram push failures without marking the event as delivered', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('fetch failed'));
+    const enqueueFailedMainPush = vi.fn().mockResolvedValue(undefined);
+    const dedupe = new Set<string>();
+    const inFlight = new Set<string>();
+    const projectStars = new Map<string, number>();
+
+    await expect(
+      processAlphaMessage({
+        raw: JSON.stringify({
+          channel: 'follow',
+          title: 'A 关注了 B',
+          content: '用户简介: DeFi protocol\n你关注的8个用户也关注了ta',
+          link: 'https://x.com/b',
+          push_at: 1778660297
+        }),
+        receivedAt: new Date(1778660298123),
+        commonFollowStarLevels: [5, 8, 12, 15, 20],
+        dedupe,
+        inFlight,
+        projectStars,
+        send,
+        enqueueFailedMainPush
+      })
+    ).rejects.toThrow('fetch failed');
+
+    expect(enqueueFailedMainPush).toHaveBeenCalledWith(expect.objectContaining({
+      dedupeKey: 'follow|https://x.com/b|A 关注了 B|1778660297',
+      count: 8,
+      star: 2,
+      lastError: 'fetch failed'
+    }));
+    expect(dedupe.has('follow|https://x.com/b|A 关注了 B|1778660297')).toBe(false);
+    expect(inFlight.size).toBe(0);
+    expect(projectStars.has('b')).toBe(false);
+  });
+
   it('dedupes repeated alpha events', async () => {
     const send = vi.fn();
     const afterSend = vi.fn();

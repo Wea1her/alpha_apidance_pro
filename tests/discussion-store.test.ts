@@ -6,7 +6,7 @@ describe('DiscussionMappingStore', () => {
     const store = new DiscussionMappingStore();
     const pending = store.waitFor(100, 88, 1000);
 
-    store.ingest([
+    const inserted = store.ingest([
       {
         channelChatId: 100,
         channelMessageId: 88,
@@ -15,11 +15,38 @@ describe('DiscussionMappingStore', () => {
       }
     ]);
 
+    expect(inserted).toBe(1);
     await expect(pending).resolves.toEqual({
       channelChatId: 100,
       channelMessageId: 88,
       discussionChatId: 200,
       discussionMessageId: 300
     });
+  });
+
+  it('returns only truly new mapping count when duplicates are ingested', () => {
+    const store = new DiscussionMappingStore();
+
+    expect(
+      store.ingest([
+        {
+          channelChatId: 100,
+          channelMessageId: 88,
+          discussionChatId: 200,
+          discussionMessageId: 300
+        }
+      ])
+    ).toBe(1);
+
+    expect(
+      store.ingest([
+        {
+          channelChatId: 100,
+          channelMessageId: 88,
+          discussionChatId: 200,
+          discussionMessageId: 300
+        }
+      ])
+    ).toBe(0);
   });
 });

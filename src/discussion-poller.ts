@@ -7,9 +7,11 @@ export interface StartDiscussionPollerOptions {
   proxyUrl?: string;
   store: DiscussionMappingStore;
   intervalMs?: number;
+  timeoutSeconds?: number;
   retryAttempts?: number;
   retryMinDelayMs?: number;
   retryMaxDelayMs?: number;
+  fetchUpdates?: typeof fetchTelegramUpdates;
   info?: (message: string) => void;
   warn?: (message: string) => void;
 }
@@ -17,7 +19,9 @@ export interface StartDiscussionPollerOptions {
 export function startDiscussionPoller(options: StartDiscussionPollerOptions): () => void {
   const info = options.info ?? console.info;
   const warn = options.warn ?? console.warn;
-  const intervalMs = options.intervalMs ?? 5_000;
+  const intervalMs = options.intervalMs ?? 250;
+  const timeoutSeconds = options.timeoutSeconds ?? 30;
+  const fetchUpdates = options.fetchUpdates ?? fetchTelegramUpdates;
   let stopped = false;
   let offset: number | undefined;
   let timer: NodeJS.Timeout | undefined;
@@ -25,10 +29,11 @@ export function startDiscussionPoller(options: StartDiscussionPollerOptions): ()
   const poll = async (): Promise<void> => {
     if (stopped) return;
     try {
-      const updates = await fetchTelegramUpdates({
+      const updates = await fetchUpdates({
         botToken: options.botToken,
         proxyUrl: options.proxyUrl,
         offset,
+        timeoutSeconds,
         retryAttempts: options.retryAttempts,
         retryMinDelayMs: options.retryMinDelayMs,
         retryMaxDelayMs: options.retryMaxDelayMs,
@@ -52,8 +57,10 @@ export function startDiscussionPoller(options: StartDiscussionPollerOptions): ()
 
       const mappings = extractDiscussionMappings(updates);
       if (mappings.length > 0) {
-        options.store.ingest(mappings);
-        info(`讨论群映射新增 ${mappings.length} 条`);
+        const inserted = options.store.ingest(mappings);
+        if (inserted > 0) {
+          info(`讨论群映射新增 ${inserted} 条`);
+        }
       }
     } catch (error) {
       warn(`轮询讨论群更新失败：${error instanceof Error ? error.message : String(error)}`);
