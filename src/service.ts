@@ -28,6 +28,11 @@ import {
   startFailedMessageRetryWorker,
   type FailedMainPushInput
 } from './failed-message-queue.js';
+import {
+  ProjectStateStore,
+  hydrateProjectStateMaps,
+  serializeProjectStateMaps
+} from './project-state-store.js';
 import { sendTelegramMessage, type TelegramSendResult } from './telegram.js';
 
 export interface ClassificationDecision {
@@ -64,6 +69,7 @@ export interface ProcessAlphaMessageOptions {
     sendResult: TelegramSendResult
   ) => Promise<void>;
   enqueueFailedMainPush?: (record: FailedMainPushInput) => Promise<void>;
+  persistProjectState?: () => Promise<void>;
   info?: (message: string) => void;
   warn?: (message: string) => void;
 }
@@ -287,6 +293,7 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
         if (!options.projectFirstChannelMessages?.has(projectKey)) {
           options.projectFirstChannelMessages?.set(projectKey, sendResult);
         }
+        await options.persistProjectState?.();
         options.dedupe.add(dedupeKey);
       } catch (error) {
         let queuedFailedPush = false;
@@ -338,6 +345,25 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const projectFirstChannelMessages = new Map<string, ChannelMessageReference>();
   const projectLocks = new Map<string, Promise<void>>();
   const analysisTracker = new AnalysisTracker();
+  const projectStateStore = new ProjectStateStore({
+    filePath: options.config.projectStatePath,
+    warn
+  });
+  hydrateProjectStateMaps(
+    await projectStateStore.load(),
+    projectStars,
+    projectPushCounts,
+    projectFirstChannelMessages
+  );
+  const persistProjectState = async (): Promise<void> => {
+    try {
+      await projectStateStore.save(
+        serializeProjectStateMaps(projectStars, projectPushCounts, projectFirstChannelMessages)
+      );
+    } catch (error) {
+      warn(`写入项目状态失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const wallet = new Wallet(options.config.alphaWalletPrivateKey);
   const factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
   const discussionStore = new DiscussionMappingStore();
@@ -482,7 +508,16 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     delivered: dedupe,
     inFlight,
     send: sendMainTelegramMessage,
-    afterDelivered: handleAfterMainSend,
+    afterDelivered: async (message, count, star, sendResult) => {
+      const projectKey = buildProjectKey(message);
+      const maxStar = options.config.commonFollowStarLevels.length;
+      projectStars.set(projectKey, Math.max(projectStars.get(projectKey) ?? 0, star));
+      if (!projectPushCounts.has(projectKey)) {
+        projectPushCounts.set(projectKey, star >= maxStar ? maxStar : star);
+      }
+      await handleAfterMainSend(message, count, star, sendResult);
+      await persistProjectState();
+    },
     info,
     warn
   });
@@ -565,6 +600,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
             await failedQueue.enqueue(record);
             warn(`主推送失败已写入补偿队列：dedupeKey=${record.dedupeKey} error=${record.lastError ?? ''}`);
           },
+          persistProjectState,
           info,
           warn
         }).catch((error) => {

@@ -230,6 +230,60 @@ describe('processAlphaMessage', () => {
     expect(projectStars.has('b')).toBe(false);
   });
 
+  it('persists project state after a successful main push', async () => {
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+    const persistProjectState = vi.fn().mockResolvedValue(undefined);
+
+    await processAlphaMessage({
+      raw: JSON.stringify({
+        channel: 'follow',
+        title: 'A 关注了 B',
+        content: '你关注的8个用户也关注了ta',
+        link: 'https://x.com/b',
+        push_at: 1778660297
+      }),
+      receivedAt: new Date(1778660298123),
+      commonFollowStarLevels: [5, 8, 12, 15, 20],
+      dedupe: new Set(),
+      projectStars: new Map(),
+      projectPushCounts: new Map(),
+      projectFirstChannelMessages: new Map(),
+      send,
+      persistProjectState
+    });
+
+    expect(persistProjectState).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not persist project state when main push fails', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('fetch failed'));
+    const enqueueFailedMainPush = vi.fn().mockResolvedValue(undefined);
+    const persistProjectState = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      processAlphaMessage({
+        raw: JSON.stringify({
+          channel: 'follow',
+          title: 'A 关注了 B',
+          content: '你关注的8个用户也关注了ta',
+          link: 'https://x.com/b',
+          push_at: 1778660297
+        }),
+        receivedAt: new Date(1778660298123),
+        commonFollowStarLevels: [5, 8, 12, 15, 20],
+        dedupe: new Set(),
+        projectStars: new Map(),
+        projectPushCounts: new Map(),
+        projectFirstChannelMessages: new Map(),
+        send,
+        enqueueFailedMainPush,
+        persistProjectState
+      })
+    ).rejects.toThrow('fetch failed');
+
+    expect(persistProjectState).not.toHaveBeenCalled();
+  });
+
   it('dedupes repeated alpha events', async () => {
     const send = vi.fn();
     const afterSend = vi.fn();

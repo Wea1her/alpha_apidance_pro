@@ -94,6 +94,7 @@ ANALYSIS_QUEUE_PATH=data/analysis-tasks.jsonl
 ANALYSIS_QUEUE_DEAD_LETTER_PATH=data/analysis-dead-letter.jsonl
 ANALYSIS_QUEUE_RETRY_INTERVAL_MS=30000
 ANALYSIS_QUEUE_MAX_ATTEMPTS=30
+PROJECT_STATE_PATH=data/project-state.json
 
 PROXY_URL=
 
@@ -140,6 +141,8 @@ TWITTER_API_BASE_URL=https://ai.6551.io
 `ANALYSIS_QUEUE_RETRY_INTERVAL_MS` 是分析补偿 worker 扫描间隔，默认 30 秒。
 
 `ANALYSIS_QUEUE_MAX_ATTEMPTS` 是单条分析任务进入死信队列前的最大补发次数，默认 30 次。
+
+`PROJECT_STATE_PATH` 是项目星级、推送次数和首次频道消息引用的本地状态文件，默认 `data/project-state.json`。服务重启后会用它恢复重复推送判断和首次推送链接。
 
 `PROXY_URL` 是代理地址。服务器没有代理时留空；如果服务器本机跑 Clash，可以填 `http://127.0.0.1:7890`。
 
@@ -389,7 +392,7 @@ sudo npm install -g pm2
 启动服务：
 
 ```bash
-pm2 start npm --name daxinjiankong -- start
+pm2 start ecosystem.config.cjs
 ```
 
 保存进程列表：

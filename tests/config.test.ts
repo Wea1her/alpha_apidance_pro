@@ -29,7 +29,8 @@ describe('parseServiceConfig', () => {
       analysisQueuePath: 'data/analysis-tasks.jsonl',
       analysisQueueDeadLetterPath: 'data/analysis-dead-letter.jsonl',
       analysisQueueRetryIntervalMs: 30000,
-      analysisQueueMaxAttempts: 30
+      analysisQueueMaxAttempts: 30,
+      projectStatePath: 'data/project-state.json'
     });
   });
 
@@ -107,6 +108,19 @@ describe('parseServiceConfig', () => {
       analysisQueueDeadLetterPath: 'data/custom-analysis-dead.jsonl',
       analysisQueueRetryIntervalMs: 45000,
       analysisQueueMaxAttempts: 11
+    });
+  });
+
+  it('parses project state path config', () => {
+    expect(
+      parseServiceConfig({
+        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+        TELEGRAM_CHAT_ID: '-100123',
+        PROJECT_STATE_PATH: 'data/custom-project-state.json'
+      })
+    ).toMatchObject({
+      projectStatePath: 'data/custom-project-state.json'
     });
   });
 });

@@ -32,6 +32,7 @@ export interface ServiceConfig {
   analysisQueueDeadLetterPath: string;
   analysisQueueRetryIntervalMs: number;
   analysisQueueMaxAttempts: number;
+  projectStatePath: string;
 }
 
 type EnvLike = Record<string, string | undefined>;
@@ -85,6 +86,7 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     analysisQueuePath: env.ANALYSIS_QUEUE_PATH?.trim() || 'data/analysis-tasks.jsonl',
     analysisQueueDeadLetterPath: env.ANALYSIS_QUEUE_DEAD_LETTER_PATH?.trim() || 'data/analysis-dead-letter.jsonl',
     analysisQueueRetryIntervalMs: parsePositiveInteger(env, 'ANALYSIS_QUEUE_RETRY_INTERVAL_MS', 30_000),
-    analysisQueueMaxAttempts: parsePositiveInteger(env, 'ANALYSIS_QUEUE_MAX_ATTEMPTS', 30)
+    analysisQueueMaxAttempts: parsePositiveInteger(env, 'ANALYSIS_QUEUE_MAX_ATTEMPTS', 30),
+    projectStatePath: env.PROJECT_STATE_PATH?.trim() || 'data/project-state.json'
   };
 }

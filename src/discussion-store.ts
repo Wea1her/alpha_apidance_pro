@@ -15,15 +15,17 @@ function ensureDir(filePath: string): void {
 export class DiscussionMappingStore {
   private readonly mappings = new Map<string, DiscussionMapping>();
   private readonly waiters = new Map<string, Array<(mapping: DiscussionMapping) => void>>();
+  private readonly persistPath: string;
 
-  constructor() {
+  constructor(options: { persistPath?: string } = {}) {
+    this.persistPath = options.persistPath ?? PERSIST_PATH;
     this.restoreFromDisk();
   }
 
   private restoreFromDisk(): void {
     let content: string;
     try {
-      content = readFileSync(PERSIST_PATH, 'utf8');
+      content = readFileSync(this.persistPath, 'utf8');
     } catch {
       return;
     }
@@ -44,9 +46,9 @@ export class DiscussionMappingStore {
 
   private persistToDisk(mappings: DiscussionMapping[]): void {
     try {
-      ensureDir(PERSIST_PATH);
+      ensureDir(this.persistPath);
       const lines = mappings.map((m) => JSON.stringify(m)).join('\n') + '\n';
-      appendFileSync(PERSIST_PATH, lines, 'utf8');
+      appendFileSync(this.persistPath, lines, 'utf8');
     } catch (error) {
       console.warn(`持久化讨论群映射失败：${error instanceof Error ? error.message : String(error)}`);
     }

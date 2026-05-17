@@ -1,6 +1,14 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DiscussionMappingStore } from '../src/discussion-store.js';
 import { startDiscussionPoller } from '../src/discussion-poller.js';
+
+async function createStore(): Promise<DiscussionMappingStore> {
+  const dir = await mkdtemp(join(tmpdir(), 'discussion-poller-'));
+  return new DiscussionMappingStore({ persistPath: join(dir, 'discussion-mappings.jsonl') });
+}
 
 describe('startDiscussionPoller', () => {
   afterEach(() => {
@@ -9,7 +17,7 @@ describe('startDiscussionPoller', () => {
 
   it('logs only truly new discussion mappings', async () => {
     vi.useFakeTimers();
-    const store = new DiscussionMappingStore();
+    const store = await createStore();
     const info = vi.fn();
     const fetchUpdates = vi
       .fn()

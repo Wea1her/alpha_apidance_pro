@@ -71,4 +71,57 @@ data: [DONE]
       })
     ).resolves.toBe('hello');
   });
+
+  it('retries retryable xAI HTTP failures before returning content', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'server error'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: 'retry ok'
+                }
+              }
+            ]
+          })
+      });
+
+    await expect(
+      requestGrokAnalysis({
+        apiKey: 'key',
+        prompt: 'hello',
+        fetch: fetchMock as unknown as typeof fetch,
+        retryMinDelayMs: 0
+      })
+    ).resolves.toBe('retry ok');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry non-retryable xAI HTTP failures', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => 'bad request'
+    });
+
+    await expect(
+      requestGrokAnalysis({
+        apiKey: 'key',
+        prompt: 'hello',
+        fetch: fetchMock as unknown as typeof fetch,
+        retryMinDelayMs: 0
+      })
+    ).rejects.toThrow('xAI request failed: 400 bad request');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

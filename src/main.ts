@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import { parseServiceConfig } from './config.js';
+import { installFatalErrorHandlers } from './fatal.js';
 import { startAlphaService } from './service.js';
+
+installFatalErrorHandlers();
 
 const config = parseServiceConfig(process.env);
 

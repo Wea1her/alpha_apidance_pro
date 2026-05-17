@@ -1,4 +1,5 @@
 import { ProxyAgent } from 'undici';
+import { retry } from './retry.js';
 
 type FetchWithDispatcher = (
   input: string,
@@ -12,6 +13,26 @@ export interface RequestGrokAnalysisOptions {
   model?: string;
   proxyUrl?: string;
   fetch?: typeof fetch;
+  retryAttempts?: number;
+  retryMinDelayMs?: number;
+  retryMaxDelayMs?: number;
+  onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
+}
+
+class XaiHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
+}
+
+function isRetryableXaiError(error: unknown): boolean {
+  if (error instanceof XaiHttpError) {
+    return error.status === 429 || error.status >= 500;
+  }
+  return true;
 }
 
 function extractContentFromSse(body: string): string | undefined {
@@ -84,64 +105,75 @@ export async function requestGrokAnalysis(options: RequestGrokAnalysisOptions): 
   const fetchImpl = (options.fetch ?? fetch) as FetchWithDispatcher;
   const dispatcher = options.proxyUrl ? new ProxyAgent(options.proxyUrl) : undefined;
   const baseUrl = (options.baseUrl ?? 'https://api.x.ai').replace(/\/+$/, '');
-  const response = await fetchImpl(`${baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${options.apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    dispatcher,
-    body: JSON.stringify({
-      model: options.model ?? 'grok-4.20-fast',
-      stream: false,
-      messages: [
-        {
-          role: 'user',
-          content: options.prompt
-        }
-      ]
-    })
-  });
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(`xAI request failed: ${response.status} ${body}`);
-  }
-
-  let parsed:
-    | {
-        choices?: Array<{
-          message?: {
-            content?: string;
-          };
-        }>;
-        error?: { message?: string };
+  return retry(
+    async () => {
+      const response = await fetchImpl(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${options.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        dispatcher,
+        body: JSON.stringify({
+          model: options.model ?? 'grok-4.20-fast',
+          stream: false,
+          messages: [
+            {
+              role: 'user',
+              content: options.prompt
+            }
+          ]
+        })
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        throw new XaiHttpError(`xAI request failed: ${response.status} ${body}`, response.status);
       }
-    | undefined;
 
-  try {
-    parsed = JSON.parse(body) as {
-      choices?: Array<{
-        message?: {
-          content?: string;
+      let parsed:
+        | {
+            choices?: Array<{
+              message?: {
+                content?: string;
+              };
+            }>;
+            error?: { message?: string };
+          }
+        | undefined;
+
+      try {
+        parsed = JSON.parse(body) as {
+          choices?: Array<{
+            message?: {
+              content?: string;
+            };
+          }>;
+          error?: { message?: string };
         };
-      }>;
-      error?: { message?: string };
-    };
-  } catch {
-    const sseContent = extractContentFromSse(body);
-    if (sseContent) {
-      return sseContent;
-    }
-    throw new Error(`xAI response is neither JSON nor valid SSE: ${body.slice(0, 300)}`);
-  }
+      } catch {
+        const sseContent = extractContentFromSse(body);
+        if (sseContent) {
+          return sseContent;
+        }
+        throw new Error(`xAI response is neither JSON nor valid SSE: ${body.slice(0, 300)}`);
+      }
 
-  const content = parsed.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || content.trim().length === 0) {
-    const sseContent = extractContentFromSse(body);
-    if (sseContent) {
-      return sseContent;
+      const content = parsed.choices?.[0]?.message?.content;
+      if (typeof content !== 'string' || content.trim().length === 0) {
+        const sseContent = extractContentFromSse(body);
+        if (sseContent) {
+          return sseContent;
+        }
+        throw new Error(parsed.error?.message ?? 'xAI response missing choices[0].message.content');
+      }
+      return content.trim();
+    },
+    {
+      attempts: options.retryAttempts ?? 3,
+      minDelayMs: options.retryMinDelayMs ?? 1_000,
+      maxDelayMs: options.retryMaxDelayMs ?? 10_000,
+      shouldRetry: isRetryableXaiError,
+      onRetry: options.onRetry
     }
-    throw new Error(parsed.error?.message ?? 'xAI response missing choices[0].message.content');
-  }
-  return content.trim();
+  );
 }
