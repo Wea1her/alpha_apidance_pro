@@ -1,19 +1,65 @@
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { DiscussionMapping } from './discussion-mapping.js';
+
+const PERSIST_PATH = 'data/discussion-mappings.jsonl';
 
 function mappingKey(channelChatId: number, channelMessageId: number): string {
   return `${channelChatId}:${channelMessageId}`;
+}
+
+function ensureDir(filePath: string): void {
+  mkdirSync(dirname(filePath), { recursive: true });
 }
 
 export class DiscussionMappingStore {
   private readonly mappings = new Map<string, DiscussionMapping>();
   private readonly waiters = new Map<string, Array<(mapping: DiscussionMapping) => void>>();
 
+  constructor() {
+    this.restoreFromDisk();
+  }
+
+  private restoreFromDisk(): void {
+    let content: string;
+    try {
+      content = readFileSync(PERSIST_PATH, 'utf8');
+    } catch {
+      return;
+    }
+    const lines = content.split('\n').filter((line) => line.trim().length > 0);
+    for (const line of lines) {
+      try {
+        const mapping = JSON.parse(line) as DiscussionMapping;
+        const key = mappingKey(mapping.channelChatId, mapping.channelMessageId);
+        this.mappings.set(key, mapping);
+      } catch {
+        // 跳过损坏行
+      }
+    }
+    if (this.mappings.size > 0) {
+      console.info(`从磁盘恢复 ${this.mappings.size} 条讨论群映射`);
+    }
+  }
+
+  private persistToDisk(mappings: DiscussionMapping[]): void {
+    try {
+      ensureDir(PERSIST_PATH);
+      const lines = mappings.map((m) => JSON.stringify(m)).join('\n') + '\n';
+      appendFileSync(PERSIST_PATH, lines, 'utf8');
+    } catch (error) {
+      console.warn(`持久化讨论群映射失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   ingest(mappings: DiscussionMapping[]): number {
     let inserted = 0;
+    const newMappings: DiscussionMapping[] = [];
     for (const mapping of mappings) {
       const key = mappingKey(mapping.channelChatId, mapping.channelMessageId);
       if (!this.mappings.has(key)) {
         inserted += 1;
+        newMappings.push(mapping);
       }
       this.mappings.set(key, mapping);
       const waiters = this.waiters.get(key);
@@ -22,6 +68,9 @@ export class DiscussionMappingStore {
       for (const resolve of waiters) {
         resolve(mapping);
       }
+    }
+    if (newMappings.length > 0) {
+      this.persistToDisk(newMappings);
     }
     return inserted;
   }
