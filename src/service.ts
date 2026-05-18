@@ -465,6 +465,10 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       xaiApiKey: options.config.xaiApiKey,
       xaiBaseUrl: options.config.xaiBaseUrl,
       xaiModel: options.config.xaiModel,
+      xaiRetryAttempts: options.config.xaiRetryAttempts,
+      xaiRetryMinDelayMs: options.config.xaiRetryMinDelayMs,
+      xaiRetryMaxDelayMs: options.config.xaiRetryMaxDelayMs,
+      xaiMaxTokens: options.config.xaiMaxTokens,
       twitterToken: options.config.twitterToken,
       twitterApiBaseUrl: options.config.twitterApiBaseUrl,
       proxyUrl: options.config.proxyUrl,
@@ -583,6 +587,17 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
               xaiBaseUrl: options.config.xaiBaseUrl,
               xaiModel: options.config.xaiModel,
               proxyUrl: options.config.proxyUrl,
+              xaiRetryAttempts: options.config.xaiRetryAttempts,
+              xaiRetryMinDelayMs: options.config.xaiRetryMinDelayMs,
+              xaiRetryMaxDelayMs: options.config.xaiRetryMaxDelayMs,
+              xaiMaxTokens: options.config.xaiMaxTokens,
+              onRetry: (error, attempt, delayMs) => {
+                warn(
+                  `Grok 账号分类请求失败，${delayMs}ms 后重试：attempt=${attempt} error=${
+                    error instanceof Error ? error.message : String(error)
+                  }`
+                );
+              },
               title,
               content,
               link,

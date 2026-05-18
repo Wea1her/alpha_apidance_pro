@@ -28,6 +28,11 @@ export interface ClassifyAccountOptions extends AccountClassificationInput {
   xaiBaseUrl?: string;
   xaiModel: string;
   proxyUrl?: string;
+  xaiRetryAttempts?: number;
+  xaiRetryMinDelayMs?: number;
+  xaiRetryMaxDelayMs?: number;
+  xaiMaxTokens?: number;
+  onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
   analyze?: (prompt: string) => Promise<string>;
 }
 
@@ -162,6 +167,11 @@ export async function classifyAccount(options: ClassifyAccountOptions): Promise<
         baseUrl: options.xaiBaseUrl,
         model: options.xaiModel,
         proxyUrl: options.proxyUrl,
+        retryAttempts: options.xaiRetryAttempts,
+        retryMinDelayMs: options.xaiRetryMinDelayMs,
+        retryMaxDelayMs: options.xaiRetryMaxDelayMs,
+        maxTokens: options.xaiMaxTokens,
+        onRetry: options.onRetry,
         prompt
       });
 

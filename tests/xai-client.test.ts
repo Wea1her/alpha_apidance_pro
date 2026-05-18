@@ -24,6 +24,22 @@ describe('requestGrokAnalysis', () => {
         fetch: fetchMock as unknown as typeof fetch
       })
     ).resolves.toBe('这是分析结果');
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string) as {
+      max_tokens?: number;
+      temperature?: number;
+      messages?: Array<{ role: string; content: string }>;
+    };
+    expect(requestBody.max_tokens).toBe(2048);
+    expect(requestBody.temperature).toBe(0.2);
+    expect(requestBody.messages?.[0]).toEqual({
+      role: 'system',
+      content: expect.stringContaining('非空')
+    });
+    expect(requestBody.messages?.[1]).toEqual({
+      role: 'user',
+      content: 'hello'
+    });
   });
 
   it('extracts assistant content from SSE chat completion responses', async () => {
@@ -104,6 +120,58 @@ data: [DONE]
     ).resolves.toBe('retry ok');
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries empty Grok completions and reports usage details', async () => {
+    const onRetry = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: 'stop',
+                message: {
+                  content: ''
+                }
+              }
+            ],
+            usage: {
+              completion_tokens: 0,
+              prompt_tokens: 900,
+              total_tokens: 900
+            }
+          })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: 'empty retry ok'
+                }
+              }
+            ]
+          })
+      });
+
+    await expect(
+      requestGrokAnalysis({
+        apiKey: 'key',
+        prompt: 'hello',
+        fetch: fetchMock as unknown as typeof fetch,
+        retryMinDelayMs: 0,
+        onRetry
+      })
+    ).resolves.toBe('empty retry ok');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((onRetry.mock.calls[0][0] as Error).message).toContain('completion_tokens=0');
+    expect((onRetry.mock.calls[0][0] as Error).message).toContain('finish_reason=stop');
   });
 
   it('does not retry non-retryable xAI HTTP failures', async () => {

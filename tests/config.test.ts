@@ -19,6 +19,10 @@ describe('parseServiceConfig', () => {
       commonFollowStarLevels: [5, 8, 12, 15, 20],
       twitterToken: 'twitter-token',
       twitterApiBaseUrl: 'https://example.6551',
+      xaiRetryAttempts: 5,
+      xaiRetryMinDelayMs: 1000,
+      xaiRetryMaxDelayMs: 20000,
+      xaiMaxTokens: 2048,
       telegramRetryAttempts: 5,
       telegramRetryMinDelayMs: 1000,
       telegramRetryMaxDelayMs: 30000,
@@ -61,6 +65,25 @@ describe('parseServiceConfig', () => {
     ).toMatchObject({
       twitterToken: undefined,
       twitterApiBaseUrl: 'https://ai.6551.io'
+    });
+  });
+
+  it('parses xAI retry and output budget config', () => {
+    expect(
+      parseServiceConfig({
+        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+        TELEGRAM_CHAT_ID: '-100123',
+        XAI_RETRY_ATTEMPTS: '7',
+        XAI_RETRY_MIN_DELAY_MS: '250',
+        XAI_RETRY_MAX_DELAY_MS: '12000',
+        XAI_MAX_TOKENS: '4096'
+      })
+    ).toMatchObject({
+      xaiRetryAttempts: 7,
+      xaiRetryMinDelayMs: 250,
+      xaiRetryMaxDelayMs: 12000,
+      xaiMaxTokens: 4096
     });
   });
 

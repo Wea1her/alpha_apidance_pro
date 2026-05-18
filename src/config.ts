@@ -15,6 +15,10 @@ export interface ServiceConfig {
   xaiApiKey?: string;
   xaiBaseUrl: string;
   xaiModel: string;
+  xaiRetryAttempts: number;
+  xaiRetryMinDelayMs: number;
+  xaiRetryMaxDelayMs: number;
+  xaiMaxTokens: number;
   twitterToken?: string;
   twitterApiBaseUrl: string;
   commonFollowStarLevels: number[];
@@ -70,6 +74,10 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     xaiApiKey: env.XAI_API_KEY?.trim() || undefined,
     xaiBaseUrl: env.XAI_BASE_URL?.trim() || 'https://api.x.ai',
     xaiModel: env.XAI_MODEL?.trim() || 'grok-4.20-fast',
+    xaiRetryAttempts: parsePositiveInteger(env, 'XAI_RETRY_ATTEMPTS', 5),
+    xaiRetryMinDelayMs: parsePositiveInteger(env, 'XAI_RETRY_MIN_DELAY_MS', 1_000),
+    xaiRetryMaxDelayMs: parsePositiveInteger(env, 'XAI_RETRY_MAX_DELAY_MS', 20_000),
+    xaiMaxTokens: parsePositiveInteger(env, 'XAI_MAX_TOKENS', 2_048),
     twitterToken: env.TWITTER_TOKEN?.trim() || undefined,
     twitterApiBaseUrl: env.TWITTER_API_BASE_URL?.trim() || 'https://ai.6551.io',
     commonFollowStarLevels: parseStarLevels(env.COMMON_FOLLOW_STAR_LEVELS),

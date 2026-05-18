@@ -101,6 +101,10 @@ PROXY_URL=
 XAI_API_KEY=
 XAI_BASE_URL=https://api.x.ai
 XAI_MODEL=grok-4.20-fast
+XAI_RETRY_ATTEMPTS=5
+XAI_RETRY_MIN_DELAY_MS=1000
+XAI_RETRY_MAX_DELAY_MS=20000
+XAI_MAX_TOKENS=2048
 
 TWITTER_TOKEN=
 TWITTER_API_BASE_URL=https://ai.6551.io
@@ -147,6 +151,10 @@ TWITTER_API_BASE_URL=https://ai.6551.io
 `PROXY_URL` 是代理地址。服务器没有代理时留空；如果服务器本机跑 Clash，可以填 `http://127.0.0.1:7890`。
 
 `XAI_API_KEY`、`XAI_BASE_URL`、`XAI_MODEL` 用于 Grok 账号分类和投研分析。
+
+`XAI_RETRY_ATTEMPTS`、`XAI_RETRY_MIN_DELAY_MS`、`XAI_RETRY_MAX_DELAY_MS` 控制 Grok 账号分类和分析的短重试。空回复、网络错误、429 和 5xx 会重试；默认 5 次，1 秒起步，最高 20 秒。
+
+`XAI_MAX_TOKENS` 控制 Grok 单次回复 token 预算，默认 2048。若分析经常被截断可适当调高；若只是偶发 `completion_tokens=0`，优先调高重试次数。
 
 `TWITTER_TOKEN`、`TWITTER_API_BASE_URL` 用于 6551 Rug 历史证据查询。
 
@@ -459,6 +467,7 @@ Telegram 主推送最终失败后写入本地补偿队列
 超过最大补发次数进入死信队列
 讨论群分析任务异步入队，不阻塞主推送成功判定
 讨论群映射缺失、Grok 失败、评论回复失败都会进入分析补偿队列
+Grok 空回复会按可重试错误处理，并在日志里记录 completion_tokens 和 finish_reason
 事件级重复消息去重
 项目级升星重复推送
 账号分类失败时保守推送

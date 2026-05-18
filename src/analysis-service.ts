@@ -11,6 +11,10 @@ export interface TriggerAnalysisOptions {
   xaiBaseUrl?: string;
   xaiModel: string;
   proxyUrl?: string;
+  xaiRetryAttempts?: number;
+  xaiRetryMinDelayMs?: number;
+  xaiRetryMaxDelayMs?: number;
+  xaiMaxTokens?: number;
   discussionChatId?: string;
   telegramRetryAttempts?: number;
   telegramRetryMinDelayMs?: number;
@@ -130,6 +134,17 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
         baseUrl: options.xaiBaseUrl,
         model: options.xaiModel,
         proxyUrl: options.proxyUrl,
+        retryAttempts: options.xaiRetryAttempts,
+        retryMinDelayMs: options.xaiRetryMinDelayMs,
+        retryMaxDelayMs: options.xaiRetryMaxDelayMs,
+        maxTokens: options.xaiMaxTokens,
+        onRetry: (error, attempt, delayMs) => {
+          warn(
+            `Grok 分析请求失败，${delayMs}ms 后重试：attempt=${attempt} error=${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        },
         prompt
       });
   const cleanedAnalysis = removeAnalysisSourceBlock(analysis);
