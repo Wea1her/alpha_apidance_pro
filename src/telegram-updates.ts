@@ -28,6 +28,14 @@ interface TelegramMessageLike {
   };
 }
 
+export interface TelegramChatDetails {
+  id?: number;
+  type?: string;
+  title?: string;
+  username?: string;
+  pinned_message?: unknown;
+}
+
 function toChatSummary(message: TelegramMessageLike | undefined): TelegramChatSummary | null {
   if (!message?.chat?.id || !message.chat.type) {
     return null;
@@ -97,6 +105,44 @@ export async function fetchTelegramUpdates(options: {
       const parsed = JSON.parse(body) as { ok?: boolean; result?: unknown[]; description?: string };
       if (!parsed.ok || !Array.isArray(parsed.result)) {
         throw new Error(parsed.description ?? 'telegram getUpdates returned invalid payload');
+      }
+      return parsed.result;
+    },
+    {
+      attempts: options.retryAttempts ?? 5,
+      minDelayMs: options.retryMinDelayMs ?? 1_000,
+      maxDelayMs: options.retryMaxDelayMs ?? 30_000,
+      onRetry: options.onRetry
+    }
+  );
+}
+
+export async function fetchTelegramChat(options: {
+  botToken: string;
+  chatId: string;
+  proxyUrl?: string;
+  fetch?: typeof fetch;
+  retryAttempts?: number;
+  retryMinDelayMs?: number;
+  retryMaxDelayMs?: number;
+  onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
+}): Promise<TelegramChatDetails> {
+  const fetchImpl = (options.fetch ?? fetch) as FetchWithDispatcher;
+  const dispatcher = options.proxyUrl ? new ProxyAgent(options.proxyUrl) : undefined;
+  const url = new URL(`https://api.telegram.org/bot${options.botToken}/getChat`);
+  url.searchParams.set('chat_id', options.chatId);
+  return retry(
+    async () => {
+      const response = await fetchImpl(url.toString(), {
+        dispatcher
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        throw new Error(`telegram getChat failed: ${response.status} ${body}`);
+      }
+      const parsed = JSON.parse(body) as { ok?: boolean; result?: TelegramChatDetails; description?: string };
+      if (!parsed.ok || !parsed.result || typeof parsed.result !== 'object') {
+        throw new Error(parsed.description ?? 'telegram getChat returned invalid payload');
       }
       return parsed.result;
     },

@@ -71,4 +71,56 @@ describe('startDiscussionPoller', () => {
       expect.objectContaining({ botToken: 'token', offset: 2, timeoutSeconds: 30 })
     );
   });
+
+  it('falls back to getChat pinned_message when getUpdates has no mapping', async () => {
+    vi.useFakeTimers();
+    const store = await createStore();
+    const info = vi.fn();
+    const fetchUpdates = vi.fn().mockResolvedValue([]);
+    const fetchChat = vi.fn().mockResolvedValue({
+      id: -1003769834276,
+      type: 'supergroup',
+      pinned_message: {
+        message_id: 1039,
+        is_automatic_forward: true,
+        chat: { id: -1003769834276, type: 'supergroup', title: 'Discussion' },
+        forward_origin: {
+          type: 'channel',
+          chat: { id: -1003903535780, type: 'channel', title: 'Alpha' },
+          message_id: 580
+        }
+      }
+    });
+
+    const stop = startDiscussionPoller({
+      botToken: 'token',
+      discussionChatId: '-1003769834276',
+      store,
+      intervalMs: 1,
+      pinnedFallbackIntervalMs: 60_000,
+      info,
+      warn: vi.fn(),
+      fetchUpdates,
+      fetchChat,
+      timeoutSeconds: 30
+    });
+
+    await vi.runOnlyPendingTimersAsync();
+    stop();
+
+    expect(fetchUpdates).toHaveBeenCalled();
+    expect(fetchChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        botToken: 'token',
+        chatId: '-1003769834276'
+      })
+    );
+    expect(store.get(-1003903535780, 580)).toEqual({
+      discussionChatId: -1003769834276,
+      discussionMessageId: 1039,
+      channelChatId: -1003903535780,
+      channelMessageId: 580
+    });
+    expect(info).toHaveBeenCalledWith('讨论群映射新增 1 条');
+  });
 });

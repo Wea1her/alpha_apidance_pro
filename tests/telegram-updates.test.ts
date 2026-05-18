@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { extractChatsFromUpdates, fetchTelegramUpdates } from '../src/telegram-updates.js';
+import {
+  extractChatsFromUpdates,
+  fetchTelegramChat,
+  fetchTelegramUpdates
+} from '../src/telegram-updates.js';
 
 describe('extractChatsFromUpdates', () => {
   it('collects unique chats from regular and channel updates', () => {
@@ -99,5 +103,40 @@ describe('fetchTelegramUpdates', () => {
     });
 
     expect(fetchMock.mock.calls[0][0]).toContain('timeout=30');
+  });
+});
+
+describe('fetchTelegramChat', () => {
+  it('returns getChat details including pinned_message', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        ok: true,
+        result: {
+          id: -1001,
+          type: 'supergroup',
+          pinned_message: {
+            message_id: 10
+          }
+        }
+      })
+    });
+
+    await expect(
+      fetchTelegramChat({
+        botToken: 'token',
+        chatId: '-1001',
+        fetch: fetchMock as unknown as typeof fetch
+      })
+    ).resolves.toEqual({
+      id: -1001,
+      type: 'supergroup',
+      pinned_message: {
+        message_id: 10
+      }
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toContain('/getChat?');
+    expect(fetchMock.mock.calls[0][0]).toContain('chat_id=-1001');
   });
 });

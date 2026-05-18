@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { extractDiscussionMappings } from '../src/discussion-mapping.js';
+import {
+  extractDiscussionMappingFromMessage,
+  extractDiscussionMappings
+} from '../src/discussion-mapping.js';
 
 describe('extractDiscussionMappings', () => {
   it('extracts automatic forward mapping from discussion updates', () => {
@@ -51,5 +54,35 @@ describe('extractDiscussionMappings', () => {
         channelMessageId: 580
       }
     ]);
+  });
+
+  it('extracts automatic forward mapping from a pinned discussion message', () => {
+    const mapping = extractDiscussionMappingFromMessage({
+      message_id: 1040,
+      is_automatic_forward: true,
+      chat: { id: -1003769834276, type: 'supergroup' },
+      forward_origin: {
+        type: 'channel',
+        chat: { id: -1003903535780, type: 'channel', title: 'Alpha' },
+        message_id: 581
+      }
+    });
+
+    expect(mapping).toEqual({
+      discussionChatId: -1003769834276,
+      discussionMessageId: 1040,
+      channelChatId: -1003903535780,
+      channelMessageId: 581
+    });
+  });
+
+  it('ignores non-automatic pinned messages', () => {
+    expect(
+      extractDiscussionMappingFromMessage({
+        message_id: 1040,
+        chat: { id: -1003769834276, type: 'supergroup' },
+        text: 'manual pin'
+      })
+    ).toBeNull();
   });
 });

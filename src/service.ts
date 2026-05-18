@@ -369,6 +369,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const discussionStore = new DiscussionMappingStore();
   const stopDiscussionPoller = startDiscussionPoller({
     botToken: options.config.telegramBotToken,
+    discussionChatId: options.config.discussionChatId,
     proxyUrl: options.config.proxyUrl,
     store: discussionStore,
     retryAttempts: options.config.telegramRetryAttempts,

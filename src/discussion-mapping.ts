@@ -41,36 +41,39 @@ function extractForwardOriginSource(msg: Record<string, unknown>): {
   };
 }
 
+export function extractDiscussionMappingFromMessage(message: unknown): DiscussionMapping | null {
+  if (!message || typeof message !== 'object') return null;
+  const msg = message as Record<string, unknown>;
+  const chat = objectField(msg, 'chat');
+  const isAutomaticForward = msg.is_automatic_forward === true;
+  const discussionMessageId = numberField(msg, 'message_id');
+  const legacySource = extractLegacyForwardSource(msg);
+  const originSource = extractForwardOriginSource(msg);
+  const channelChatId = legacySource.channelChatId ?? originSource.channelChatId;
+  const channelMessageId = legacySource.channelMessageId ?? originSource.channelMessageId;
+
+  if (!isAutomaticForward || discussionMessageId === null || channelMessageId === null) return null;
+  if (!chat) return null;
+
+  const discussionChatId = numberField(chat, 'id');
+  if (discussionChatId === null || channelChatId === null) return null;
+
+  return {
+    discussionChatId,
+    discussionMessageId,
+    channelChatId,
+    channelMessageId
+  };
+}
+
 export function extractDiscussionMappings(updates: unknown[]): DiscussionMapping[] {
   const mappings: DiscussionMapping[] = [];
 
   for (const update of updates) {
     if (!update || typeof update !== 'object') continue;
     const record = update as Record<string, unknown>;
-    const message = record.message;
-    if (!message || typeof message !== 'object') continue;
-    const msg = message as Record<string, unknown>;
-    const chat = objectField(msg, 'chat');
-    const isAutomaticForward = msg.is_automatic_forward === true;
-    const discussionMessageId = numberField(msg, 'message_id');
-    const legacySource = extractLegacyForwardSource(msg);
-    const originSource = extractForwardOriginSource(msg);
-    const channelChatId = legacySource.channelChatId ?? originSource.channelChatId;
-    const channelMessageId = legacySource.channelMessageId ?? originSource.channelMessageId;
-
-    if (!isAutomaticForward || discussionMessageId === null || channelMessageId === null) continue;
-    if (!chat) continue;
-
-    const discussionChatId = numberField(chat, 'id');
-
-    if (discussionChatId === null || channelChatId === null) continue;
-
-    mappings.push({
-      discussionChatId,
-      discussionMessageId,
-      channelChatId,
-      channelMessageId
-    });
+    const mapping = extractDiscussionMappingFromMessage(record.message);
+    if (mapping) mappings.push(mapping);
   }
 
   return mappings;
