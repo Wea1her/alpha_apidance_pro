@@ -25,4 +25,31 @@ describe('extractDiscussionMappings', () => {
       }
     ]);
   });
+
+  it('extracts automatic forward mapping from modern forward_origin updates', () => {
+    const mappings = extractDiscussionMappings([
+      {
+        update_id: 1,
+        message: {
+          message_id: 1039,
+          is_automatic_forward: true,
+          chat: { id: -1003769834276, type: 'supergroup' },
+          forward_origin: {
+            type: 'channel',
+            chat: { id: -1003903535780, type: 'channel', title: 'Alpha' },
+            message_id: 580
+          }
+        }
+      }
+    ]);
+
+    expect(mappings).toEqual([
+      {
+        discussionChatId: -1003769834276,
+        discussionMessageId: 1039,
+        channelChatId: -1003903535780,
+        channelMessageId: 580
+      }
+    ]);
+  });
 });

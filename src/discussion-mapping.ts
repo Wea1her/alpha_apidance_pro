@@ -5,6 +5,42 @@ export interface DiscussionMapping {
   channelMessageId: number;
 }
 
+function numberField(record: Record<string, unknown>, key: string): number | null {
+  return typeof record[key] === 'number' ? (record[key] as number) : null;
+}
+
+function objectField(record: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = record[key];
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function extractLegacyForwardSource(msg: Record<string, unknown>): {
+  channelChatId: number | null;
+  channelMessageId: number | null;
+} {
+  const forwardFromChat = objectField(msg, 'forward_from_chat');
+  return {
+    channelChatId: forwardFromChat ? numberField(forwardFromChat, 'id') : null,
+    channelMessageId: numberField(msg, 'forward_from_message_id')
+  };
+}
+
+function extractForwardOriginSource(msg: Record<string, unknown>): {
+  channelChatId: number | null;
+  channelMessageId: number | null;
+} {
+  const forwardOrigin = objectField(msg, 'forward_origin');
+  if (!forwardOrigin || forwardOrigin.type !== 'channel') {
+    return { channelChatId: null, channelMessageId: null };
+  }
+
+  const chat = objectField(forwardOrigin, 'chat');
+  return {
+    channelChatId: chat ? numberField(chat, 'id') : null,
+    channelMessageId: numberField(forwardOrigin, 'message_id')
+  };
+}
+
 export function extractDiscussionMappings(updates: unknown[]): DiscussionMapping[] {
   const mappings: DiscussionMapping[] = [];
 
@@ -14,24 +50,18 @@ export function extractDiscussionMappings(updates: unknown[]): DiscussionMapping
     const message = record.message;
     if (!message || typeof message !== 'object') continue;
     const msg = message as Record<string, unknown>;
-    const chat = msg.chat;
-    const forwardFromChat = msg.forward_from_chat;
+    const chat = objectField(msg, 'chat');
     const isAutomaticForward = msg.is_automatic_forward === true;
-    const discussionMessageId = typeof msg.message_id === 'number' ? msg.message_id : null;
-    const channelMessageId = typeof msg.forward_from_message_id === 'number' ? msg.forward_from_message_id : null;
+    const discussionMessageId = numberField(msg, 'message_id');
+    const legacySource = extractLegacyForwardSource(msg);
+    const originSource = extractForwardOriginSource(msg);
+    const channelChatId = legacySource.channelChatId ?? originSource.channelChatId;
+    const channelMessageId = legacySource.channelMessageId ?? originSource.channelMessageId;
 
     if (!isAutomaticForward || discussionMessageId === null || channelMessageId === null) continue;
-    if (!chat || typeof chat !== 'object') continue;
-    if (!forwardFromChat || typeof forwardFromChat !== 'object') continue;
+    if (!chat) continue;
 
-    const discussionChatId =
-      typeof (chat as Record<string, unknown>).id === 'number'
-        ? ((chat as Record<string, unknown>).id as number)
-        : null;
-    const channelChatId =
-      typeof (forwardFromChat as Record<string, unknown>).id === 'number'
-        ? ((forwardFromChat as Record<string, unknown>).id as number)
-        : null;
+    const discussionChatId = numberField(chat, 'id');
 
     if (discussionChatId === null || channelChatId === null) continue;
 
