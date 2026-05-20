@@ -2,12 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { parseServiceConfig } from '../src/config.js';
 
 describe('parseServiceConfig', () => {
+  const baseEnv = {
+    ALPHA_WALLET_PRIVATE_KEY: '0xabc',
+    TELEGRAM_BOT_TOKEN: 'bot-token',
+    TELEGRAM_CHAT_ID: '-100123'
+  };
+
   it('parses required alpha and telegram config', () => {
     expect(
       parseServiceConfig({
-        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
-        TELEGRAM_BOT_TOKEN: 'bot-token',
-        TELEGRAM_CHAT_ID: '-100123',
+        ...baseEnv,
         COMMON_FOLLOW_STAR_LEVELS: '5,8,12,15,20',
         TWITTER_TOKEN: 'twitter-token',
         TWITTER_API_BASE_URL: 'https://example.6551'
@@ -34,6 +38,9 @@ describe('parseServiceConfig', () => {
       analysisQueueDeadLetterPath: 'data/analysis-dead-letter.jsonl',
       analysisQueueRetryIntervalMs: 30000,
       analysisQueueMaxAttempts: 30,
+      analysisArchivePath: 'data/analysis-archive.jsonl',
+      exportAdminUsernames: [],
+      exportAllowedChatIds: [],
       projectStatePath: 'data/project-state.json'
     });
   });
@@ -41,9 +48,7 @@ describe('parseServiceConfig', () => {
   it('parses telegram retry config', () => {
     expect(
       parseServiceConfig({
-        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
-        TELEGRAM_BOT_TOKEN: 'bot-token',
-        TELEGRAM_CHAT_ID: '-100123',
+        ...baseEnv,
         TELEGRAM_RETRY_ATTEMPTS: '8',
         TELEGRAM_RETRY_MIN_DELAY_MS: '500',
         TELEGRAM_RETRY_MAX_DELAY_MS: '10000'
@@ -57,11 +62,7 @@ describe('parseServiceConfig', () => {
 
   it('defaults twitter api base url for 6551', () => {
     expect(
-      parseServiceConfig({
-        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
-        TELEGRAM_BOT_TOKEN: 'bot-token',
-        TELEGRAM_CHAT_ID: '-100123'
-      })
+      parseServiceConfig(baseEnv)
     ).toMatchObject({
       twitterToken: undefined,
       twitterApiBaseUrl: 'https://ai.6551.io'
@@ -71,9 +72,7 @@ describe('parseServiceConfig', () => {
   it('parses xAI retry and output budget config', () => {
     expect(
       parseServiceConfig({
-        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
-        TELEGRAM_BOT_TOKEN: 'bot-token',
-        TELEGRAM_CHAT_ID: '-100123',
+        ...baseEnv,
         XAI_RETRY_ATTEMPTS: '7',
         XAI_RETRY_MIN_DELAY_MS: '250',
         XAI_RETRY_MAX_DELAY_MS: '12000',
@@ -99,9 +98,7 @@ describe('parseServiceConfig', () => {
   it('parses failed queue config', () => {
     expect(
       parseServiceConfig({
-        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
-        TELEGRAM_BOT_TOKEN: 'bot-token',
-        TELEGRAM_CHAT_ID: '-100123',
+        ...baseEnv,
         FAILED_QUEUE_PATH: 'data/custom-failed.jsonl',
         FAILED_QUEUE_DEAD_LETTER_PATH: 'data/custom-dead.jsonl',
         FAILED_QUEUE_RETRY_INTERVAL_MS: '15000',
@@ -118,9 +115,7 @@ describe('parseServiceConfig', () => {
   it('parses analysis queue config', () => {
     expect(
       parseServiceConfig({
-        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
-        TELEGRAM_BOT_TOKEN: 'bot-token',
-        TELEGRAM_CHAT_ID: '-100123',
+        ...baseEnv,
         ANALYSIS_QUEUE_PATH: 'data/custom-analysis.jsonl',
         ANALYSIS_QUEUE_DEAD_LETTER_PATH: 'data/custom-analysis-dead.jsonl',
         ANALYSIS_QUEUE_RETRY_INTERVAL_MS: '45000',
@@ -134,12 +129,23 @@ describe('parseServiceConfig', () => {
     });
   });
 
+  it('parses analysis archive export config', () => {
+    const config = parseServiceConfig({
+      ...baseEnv,
+      ANALYSIS_ARCHIVE_PATH: 'data/custom-analysis-archive.jsonl',
+      EXPORT_ADMIN_USERNAMES: 'Alice,@Bob',
+      EXPORT_ALLOWED_CHAT_IDS: '-1001,-1002'
+    });
+
+    expect(config.analysisArchivePath).toBe('data/custom-analysis-archive.jsonl');
+    expect(config.exportAdminUsernames).toEqual(['Alice', '@Bob']);
+    expect(config.exportAllowedChatIds).toEqual(['-1001', '-1002']);
+  });
+
   it('parses project state path config', () => {
     expect(
       parseServiceConfig({
-        ALPHA_WALLET_PRIVATE_KEY: '0xabc',
-        TELEGRAM_BOT_TOKEN: 'bot-token',
-        TELEGRAM_CHAT_ID: '-100123',
+        ...baseEnv,
         PROJECT_STATE_PATH: 'data/custom-project-state.json'
       })
     ).toMatchObject({

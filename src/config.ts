@@ -36,6 +36,9 @@ export interface ServiceConfig {
   analysisQueueDeadLetterPath: string;
   analysisQueueRetryIntervalMs: number;
   analysisQueueMaxAttempts: number;
+  analysisArchivePath: string;
+  exportAdminUsernames: string[];
+  exportAllowedChatIds: string[];
   projectStatePath: string;
 }
 
@@ -60,6 +63,13 @@ function parsePositiveInteger(env: EnvLike, key: string, fallback: number): numb
     throw new Error(`${key} must be a positive integer`);
   }
   return parsed;
+}
+
+function parseCsvList(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
 }
 
 export function parseServiceConfig(env: EnvLike): ServiceConfig {
@@ -95,6 +105,9 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     analysisQueueDeadLetterPath: env.ANALYSIS_QUEUE_DEAD_LETTER_PATH?.trim() || 'data/analysis-dead-letter.jsonl',
     analysisQueueRetryIntervalMs: parsePositiveInteger(env, 'ANALYSIS_QUEUE_RETRY_INTERVAL_MS', 30_000),
     analysisQueueMaxAttempts: parsePositiveInteger(env, 'ANALYSIS_QUEUE_MAX_ATTEMPTS', 30),
+    analysisArchivePath: env.ANALYSIS_ARCHIVE_PATH?.trim() || 'data/analysis-archive.jsonl',
+    exportAdminUsernames: parseCsvList(env.EXPORT_ADMIN_USERNAMES),
+    exportAllowedChatIds: parseCsvList(env.EXPORT_ALLOWED_CHAT_IDS),
     projectStatePath: env.PROJECT_STATE_PATH?.trim() || 'data/project-state.json'
   };
 }

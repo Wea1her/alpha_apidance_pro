@@ -1,5 +1,8 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { describe, expect, it, vi } from 'vitest';
-import { replyInTelegramThread, sendTelegramMessage } from '../src/telegram.js';
+import { replyInTelegramThread, sendTelegramDocument, sendTelegramMessage } from '../src/telegram.js';
 
 describe('sendTelegramMessage', () => {
   it('returns the created telegram message id', async () => {
@@ -112,6 +115,42 @@ describe('replyInTelegramThread', () => {
           disable_web_page_preview: false,
           reply_to_message_id: 123
         })
+      })
+    );
+  });
+});
+
+describe('sendTelegramDocument', () => {
+  it('sends a document to telegram', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'telegram-document-'));
+    const filePath = join(tempDir, 'report.md');
+    await writeFile(filePath, '# Report\n');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        ok: true,
+        result: {
+          message_id: 456,
+          chat: {
+            id: -100123
+          }
+        }
+      })
+    });
+
+    await expect(
+      sendTelegramDocument({
+        botToken: 'token',
+        chatId: '-100123',
+        filePath,
+        fetch: fetchMock as unknown as typeof fetch
+      })
+    ).resolves.toEqual({ messageId: 456, chatId: -100123 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.telegram.org/bottoken/sendDocument',
+      expect.objectContaining({
+        method: 'POST'
       })
     );
   });

@@ -94,6 +94,9 @@ ANALYSIS_QUEUE_PATH=data/analysis-tasks.jsonl
 ANALYSIS_QUEUE_DEAD_LETTER_PATH=data/analysis-dead-letter.jsonl
 ANALYSIS_QUEUE_RETRY_INTERVAL_MS=30000
 ANALYSIS_QUEUE_MAX_ATTEMPTS=30
+ANALYSIS_ARCHIVE_PATH=data/analysis-archive.jsonl
+EXPORT_ADMIN_USERNAMES=
+EXPORT_ALLOWED_CHAT_IDS=
 PROJECT_STATE_PATH=data/project-state.json
 
 PROXY_URL=
@@ -145,6 +148,12 @@ TWITTER_API_BASE_URL=https://ai.6551.io
 `ANALYSIS_QUEUE_RETRY_INTERVAL_MS` 是分析补偿 worker 扫描间隔，默认 30 秒。
 
 `ANALYSIS_QUEUE_MAX_ATTEMPTS` 是单条分析任务进入死信队列前的最大补发次数，默认 30 次。
+
+`ANALYSIS_ARCHIVE_PATH` 是 Grok 分析归档文件，默认 `data/analysis-archive.jsonl`。
+
+`EXPORT_ADMIN_USERNAMES` 是允许触发分析导出的 Telegram 用户名列表，逗号分隔，带不带 `@` 都可以。
+
+`EXPORT_ALLOWED_CHAT_IDS` 是允许触发分析导出的 Telegram 聊天 ID 列表，逗号分隔。频道内导出建议使用这个配置。
 
 `PROJECT_STATE_PATH` 是项目星级、推送次数和首次频道消息引用的本地状态文件，默认 `data/project-state.json`。服务重启后会用它恢复重复推送判断和首次推送链接。
 
