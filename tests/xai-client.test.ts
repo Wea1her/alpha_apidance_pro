@@ -122,6 +122,40 @@ data: [DONE]
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('retries Grok upstream 403 before returning content', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => 'upstream forbidden'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '403 retry ok'
+                }
+              }
+            ]
+          })
+      });
+
+    await expect(
+      requestGrokAnalysis({
+        apiKey: 'key',
+        prompt: 'hello',
+        fetch: fetchMock as unknown as typeof fetch,
+        retryMinDelayMs: 0
+      })
+    ).resolves.toBe('403 retry ok');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('retries empty Grok completions and reports usage details', async () => {
     const onRetry = vi.fn();
     const fetchMock = vi

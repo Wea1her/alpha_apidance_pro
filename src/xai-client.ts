@@ -63,7 +63,7 @@ function isRetryableXaiError(error: unknown): boolean {
     return true;
   }
   if (error instanceof XaiHttpError) {
-    return error.status === 429 || error.status >= 500;
+    return error.status === 403 || error.status === 429 || error.status >= 500;
   }
   return true;
 }

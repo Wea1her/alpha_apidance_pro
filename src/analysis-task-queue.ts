@@ -1,5 +1,5 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { appendFile, mkdir, open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 export interface AnalysisTaskRecord {
   version: 1;
@@ -38,6 +38,8 @@ export interface AnalysisTaskQueueOptions {
   maxAttempts?: number;
   baseDelayMs?: number;
   maxDelayMs?: number;
+  lockDir?: string;
+  processingLockStaleMs?: number;
 }
 
 export interface AnalysisTaskProcessResult {
@@ -59,6 +61,17 @@ function errorMessage(error: unknown): string {
 
 function retryDelayMs(retryCount: number, baseDelayMs: number, maxDelayMs: number): number {
   return Math.min(maxDelayMs, baseDelayMs * 2 ** Math.max(0, retryCount - 1));
+}
+
+function dedupeByTaskKey(records: AnalysisTaskRecord[]): AnalysisTaskRecord[] {
+  const seen = new Set<string>();
+  const deduped: AnalysisTaskRecord[] = [];
+  for (const record of records) {
+    if (seen.has(record.taskKey)) continue;
+    seen.add(record.taskKey);
+    deduped.push(record);
+  }
+  return deduped;
 }
 
 async function readJsonl<T>(filePath: string): Promise<T[]> {
@@ -89,21 +102,79 @@ async function writeJsonl<T>(filePath: string, records: readonly T[]): Promise<v
 export class AnalysisTaskQueue {
   private readonly filePath: string;
   private readonly deadLetterPath: string;
+  private readonly lockDir: string;
   private readonly maxAttempts: number;
   private readonly baseDelayMs: number;
   private readonly maxDelayMs: number;
+  private readonly processingLockStaleMs: number;
 
   constructor(options: AnalysisTaskQueueOptions) {
     this.filePath = options.filePath;
     this.deadLetterPath = options.deadLetterPath;
+    this.lockDir = options.lockDir ?? `${options.filePath}.locks`;
     this.maxAttempts = options.maxAttempts ?? 30;
     this.baseDelayMs = options.baseDelayMs ?? 30_000;
     this.maxDelayMs = options.maxDelayMs ?? 3_600_000;
+    this.processingLockStaleMs = options.processingLockStaleMs ?? 15 * 60_000;
+  }
+
+  private lockPath(taskKey: string): string {
+    return join(this.lockDir, `${Buffer.from(taskKey).toString('base64url')}.lock`);
+  }
+
+  private async isStaleLock(lockPath: string, now: Date): Promise<boolean> {
+    try {
+      const stats = await stat(lockPath);
+      return now.getTime() - stats.mtimeMs > this.processingLockStaleMs;
+    } catch {
+      return true;
+    }
+  }
+
+  async tryAcquireProcessingLock(taskKey: string, now = new Date()): Promise<(() => Promise<void>) | null> {
+    await mkdir(this.lockDir, { recursive: true });
+    const lockPath = this.lockPath(taskKey);
+    let handle: Awaited<ReturnType<typeof open>> | undefined;
+    try {
+      handle = await open(lockPath, 'wx');
+      await handle.writeFile(
+        JSON.stringify({
+          taskKey,
+          pid: process.pid,
+          createdAt: now.toISOString()
+        }),
+        'utf8'
+      );
+      return async () => {
+        try {
+          await unlink(lockPath);
+        } catch (error) {
+          if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
+            throw error;
+          }
+        }
+      };
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
+        if (await this.isStaleLock(lockPath, now)) {
+          try {
+            await unlink(lockPath);
+          } catch {
+            return null;
+          }
+          return this.tryAcquireProcessingLock(taskKey, now);
+        }
+        return null;
+      }
+      throw error;
+    } finally {
+      await handle?.close();
+    }
   }
 
   async enqueue(input: AnalysisTaskInput, now = new Date()): Promise<void> {
     const records = await this.listAll();
-    const existingIndex = records.findIndex((record) => record.taskKey === input.taskKey);
+    const existing = records.find((record) => record.taskKey === input.taskKey);
     const timestamp = now.toISOString();
     const record: AnalysisTaskRecord = {
       version: 1,
@@ -116,19 +187,17 @@ export class AnalysisTaskQueue {
       link: input.link,
       count: input.count,
       star: input.star,
-      retryCount: existingIndex >= 0 ? records[existingIndex].retryCount : 0,
-      nextRetryAt: existingIndex >= 0 ? records[existingIndex].nextRetryAt : timestamp,
-      createdAt: existingIndex >= 0 ? records[existingIndex].createdAt : timestamp,
+      retryCount: existing ? existing.retryCount : 0,
+      nextRetryAt: existing ? existing.nextRetryAt : timestamp,
+      createdAt: existing ? existing.createdAt : timestamp,
       updatedAt: timestamp,
       lastError: input.lastError
     };
 
-    if (existingIndex >= 0) {
-      records[existingIndex] = record;
-    } else {
-      records.push(record);
-    }
-    await writeJsonl(this.filePath, records);
+    await writeJsonl(this.filePath, [
+      ...records.filter((existingRecord) => existingRecord.taskKey !== input.taskKey),
+      record
+    ]);
   }
 
   async listAll(): Promise<AnalysisTaskRecord[]> {
@@ -137,7 +206,9 @@ export class AnalysisTaskQueue {
 
   async listDue(now = new Date()): Promise<AnalysisTaskRecord[]> {
     const nowMs = now.getTime();
-    return (await this.listAll()).filter((record) => new Date(record.nextRetryAt).getTime() <= nowMs);
+    return dedupeByTaskKey(
+      (await this.listAll()).filter((record) => new Date(record.nextRetryAt).getTime() <= nowMs)
+    );
   }
 
   async remove(taskKey: string): Promise<void> {
@@ -150,10 +221,9 @@ export class AnalysisTaskQueue {
 
   async markFailure(taskKey: string, error: unknown, now = new Date()): Promise<'pending' | 'dead-letter'> {
     const records = await this.listAll();
-    const index = records.findIndex((record) => record.taskKey === taskKey);
-    if (index < 0) return 'pending';
+    const record = records.find((candidate) => candidate.taskKey === taskKey);
+    if (!record) return 'pending';
 
-    const record = records[index];
     const retryCount = record.retryCount + 1;
     const updated: AnalysisTaskRecord = {
       ...record,
@@ -166,13 +236,17 @@ export class AnalysisTaskQueue {
     if (retryCount >= this.maxAttempts) {
       await mkdir(dirname(this.deadLetterPath), { recursive: true });
       await appendFile(this.deadLetterPath, `${JSON.stringify(updated)}\n`, 'utf8');
-      records.splice(index, 1);
-      await writeJsonl(this.filePath, records);
+      await writeJsonl(
+        this.filePath,
+        records.filter((candidate) => candidate.taskKey !== taskKey)
+      );
       return 'dead-letter';
     }
 
-    records[index] = updated;
-    await writeJsonl(this.filePath, records);
+    await writeJsonl(this.filePath, [
+      ...records.filter((candidate) => candidate.taskKey !== taskKey),
+      updated
+    ]);
     return 'pending';
   }
 }
@@ -189,7 +263,12 @@ export function startAnalysisRetryWorker(options: StartAnalysisRetryWorkerOption
     try {
       const dueTasks = await options.queue.listDue();
       for (const task of dueTasks) {
+        let releaseLock: (() => Promise<void>) | null = null;
         try {
+          releaseLock = await options.queue.tryAcquireProcessingLock(task.taskKey);
+          if (!releaseLock) {
+            continue;
+          }
           const result = await options.process(task);
           if (result.status === 'done') {
             await options.queue.remove(task.taskKey);
@@ -209,6 +288,14 @@ export function startAnalysisRetryWorker(options: StartAnalysisRetryWorkerOption
             warn(`分析补偿超过最大次数，进入死信队列：taskKey=${task.taskKey} error=${errorMessage(error)}`);
           } else {
             warn(`分析补偿失败：taskKey=${task.taskKey} error=${errorMessage(error)}`);
+          }
+        } finally {
+          if (releaseLock) {
+            try {
+              await releaseLock();
+            } catch (error) {
+              warn(`释放分析任务锁失败：taskKey=${task.taskKey} error=${errorMessage(error)}`);
+            }
           }
         }
       }
