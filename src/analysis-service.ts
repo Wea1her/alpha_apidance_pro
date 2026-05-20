@@ -51,6 +51,18 @@ export interface TriggerAnalysisOptions {
   warn?: (message: string) => void;
 }
 
+export type TriggerAnalysisResult =
+  | ({
+      type: 'analysis';
+      message: TelegramSendResult;
+      analysisText: string;
+    } & TelegramSendResult)
+  | ({
+      type: 'reminder';
+      message: TelegramSendResult;
+      existingAnalysis: StoredAnalysis;
+    } & TelegramSendResult);
+
 function removeAnalysisSourceBlock(text: string): string {
   const lines = text.trim().split('\n');
   const sourceStart = lines.findIndex((line) =>
@@ -68,7 +80,7 @@ function removeAnalysisSourceBlock(text: string): string {
     .trim();
 }
 
-export async function triggerAnalysisComment(options: TriggerAnalysisOptions): Promise<TelegramSendResult | void> {
+export async function triggerAnalysisComment(options: TriggerAnalysisOptions): Promise<TriggerAnalysisResult | void> {
   const info = options.info ?? console.info;
   const warn = options.warn ?? console.warn;
   const reply = options.reply ?? replyInTelegramThread;
@@ -83,7 +95,7 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
   }
 
   if (options.existingAnalysis) {
-    await reply({
+    const reminderResult = await reply({
       botToken: options.botToken,
       chatId: options.existingAnalysis.discussionChatId,
       replyToMessageId: options.existingAnalysis.analysisMessageId,
@@ -101,7 +113,12 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
       }
     });
     info(`已回复既有分析评论：${options.projectKey}`);
-    return;
+    return {
+      ...reminderResult,
+      type: 'reminder',
+      message: reminderResult,
+      existingAnalysis: options.existingAnalysis
+    };
   }
 
   const mapping = await options.discussionStore.waitFor(options.channelChatId, options.channelMessageId, 30_000);
@@ -168,5 +185,10 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
   });
 
   info(`已写入讨论群评论：${mapping.discussionChatId}/${mapping.discussionMessageId}`);
-  return replyResult;
+  return {
+    ...replyResult,
+    type: 'analysis',
+    message: replyResult,
+    analysisText: cleanedAnalysis
+  };
 }

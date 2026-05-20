@@ -19,7 +19,7 @@ describe('triggerAnalysisComment', () => {
     const analyze = vi.fn();
     const getRugHistory = vi.fn();
 
-    await triggerAnalysisComment({
+    const result = await triggerAnalysisComment({
       xaiApiKey: 'key',
       xaiBaseUrl: 'https://example.com',
       xaiModel: 'grok-4.20-fast',
@@ -43,6 +43,13 @@ describe('triggerAnalysisComment', () => {
 
     expect(analyze).not.toHaveBeenCalled();
     expect(getRugHistory).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      type: 'reminder',
+      message: { messageId: 556, chatId: -1003769834276 },
+      messageId: 556,
+      chatId: -1003769834276,
+      existingAnalysis: existing
+    });
     expect(reply).toHaveBeenCalledWith(expect.objectContaining({
       botToken: 'bot',
       chatId: '-1003769834276',
@@ -108,7 +115,13 @@ describe('triggerAnalysisComment', () => {
         analyze,
         reply
       })
-    ).resolves.toEqual({ messageId: 556, chatId: -1003769834276 });
+    ).resolves.toEqual({
+      type: 'analysis',
+      message: { messageId: 556, chatId: -1003769834276 },
+      messageId: 556,
+      chatId: -1003769834276,
+      analysisText: '1. 项目核心信息：test'
+    });
 
     expect(getRugHistory).toHaveBeenCalledWith({
       link: 'https://x.com/b',
@@ -160,7 +173,7 @@ describe('triggerAnalysisComment', () => {
       warnings: []
     });
 
-    await triggerAnalysisComment({
+    const result = await triggerAnalysisComment({
       xaiApiKey: 'key',
       xaiBaseUrl: 'https://example.com',
       xaiModel: 'grok-4.20-fast',
@@ -185,5 +198,9 @@ describe('triggerAnalysisComment', () => {
 
     expect(reply.mock.calls[0][0].text).toBe('Grok 分析\n\n1. 项目核心信息：test\n2. 当前进展：early');
     expect(reply.mock.calls[0][0].text).not.toContain('*');
+    expect(result).toMatchObject({
+      type: 'analysis',
+      analysisText: '1. 项目核心信息：test\n2. 当前进展：early'
+    });
   });
 });

@@ -24,6 +24,7 @@ const task = {
   title: 'A 关注了 B',
   content: '用户简介: builder',
   link: 'https://x.com/b',
+  mainPushedAt: '2026-05-16T00:00:00.500Z',
   count: 12,
   star: 3
 };
@@ -37,7 +38,8 @@ describe('AnalysisTaskQueue', () => {
       {
         taskKey: task.taskKey,
         retryCount: 0,
-        projectKey: 'b'
+        projectKey: 'b',
+        mainPushedAt: task.mainPushedAt
       }
     ]);
   });
@@ -50,6 +52,20 @@ describe('AnalysisTaskQueue', () => {
     const records = await queue.listAll();
     expect(records).toHaveLength(1);
     expect(records[0].star).toBe(4);
+    expect(records[0].mainPushedAt).toBe(task.mainPushedAt);
+  });
+
+  it('uses the latest input main push time when upserting tasks', async () => {
+    const { queue } = await createQueue();
+    await queue.enqueue(task, new Date('2026-05-16T00:00:00.000Z'));
+    await queue.enqueue(
+      { ...task, mainPushedAt: '2026-05-16T00:00:02.500Z' },
+      new Date('2026-05-16T00:00:02.000Z')
+    );
+
+    const records = await queue.listAll();
+    expect(records).toHaveLength(1);
+    expect(records[0].mainPushedAt).toBe('2026-05-16T00:00:02.500Z');
   });
 
   it('moves tasks to dead letter after max attempts', async () => {
