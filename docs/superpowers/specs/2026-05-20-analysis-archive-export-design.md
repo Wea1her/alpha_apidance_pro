@@ -14,7 +14,7 @@
 - 只导出已有 Grok 分析正文的项目；没有完成 Grok 分析的推送不进入导出文档。
 - 按项目合并，按时间段内最高星级分组，同星级内按最高监控池关注数排序。
 - 通过 Telegram 回传 Markdown 文档。
-- 提供 `/chatid` 辅助命令，方便在频道里获取频道 ID。
+- 提供 `查看聊天ID` 辅助命令，方便在频道里获取频道 ID。
 
 ## 非目标
 
@@ -141,21 +141,26 @@ interface AnalysisArchiveHitRecord {
 
 ## Telegram 命令
 
-支持两个命令：
+支持中文文本命令，并保留英文斜杠命令作为兼容别名：
 
 ```text
+查看聊天ID
+导出分析 2026-05-01T09 2026-05-20T18
+
 /chatid
 /export_analysis 2026-05-01T09 2026-05-20T18
 ```
 
-两个命令都必须支持 Telegram update 的两种消息来源：
+中文文本命令是主要使用方式。英文斜杠命令保留是因为 Telegram bot command 菜单和部分客户端对中文斜杠命令支持不稳定。
+
+这些命令都必须支持 Telegram update 的两种消息来源：
 
 - `message`
 - `channel_post`
 
-`/chatid` 回复当前 `chat_id`。如果命令来自频道，读取 `channel_post.chat.id`；如果来自私聊或群，读取 `message.chat.id`。
+`查看聊天ID` 和 `/chatid` 回复当前 `chat_id`。如果命令来自频道，读取 `channel_post.chat.id`；如果来自私聊或群，读取 `message.chat.id`。
 
-`/export_analysis` 固定接收两个时间参数，格式为 `YYYY-MM-DDTHH`。时间按 `Asia/Shanghai` 解释。
+`导出分析` 和 `/export_analysis` 固定接收两个时间参数，格式为 `YYYY-MM-DDTHH`。时间按 `Asia/Shanghai` 解释。
 
 时间范围规则：
 
