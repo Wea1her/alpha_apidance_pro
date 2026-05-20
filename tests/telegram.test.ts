@@ -143,6 +143,7 @@ describe('sendTelegramDocument', () => {
         botToken: 'token',
         chatId: '-100123',
         filePath,
+        caption: '导出完成',
         fetch: fetchMock as unknown as typeof fetch
       })
     ).resolves.toEqual({ messageId: 456, chatId: -100123 });
@@ -153,5 +154,14 @@ describe('sendTelegramDocument', () => {
         method: 'POST'
       })
     );
+
+    const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(requestInit.body).toBeInstanceOf(FormData);
+    const body = requestInit.body as FormData;
+    expect(body.get('chat_id')).toBe('-100123');
+    expect(body.get('caption')).toBe('导出完成');
+    const document = body.get('document');
+    expect(document).toBeInstanceOf(Blob);
+    expect((document as { name?: string }).name).toBe('report.md');
   });
 });
