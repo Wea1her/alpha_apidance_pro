@@ -15,6 +15,7 @@ export interface StartDiscussionPollerOptions {
   retryMaxDelayMs?: number;
   fetchUpdates?: typeof fetchTelegramUpdates;
   fetchChat?: typeof fetchTelegramChat;
+  onUpdates?: (updates: unknown[]) => Promise<void>;
   info?: (message: string) => void;
   warn?: (message: string) => void;
 }
@@ -56,10 +57,7 @@ export function startDiscussionPoller(options: StartDiscussionPollerOptions): ()
         const current = (update as Record<string, unknown>).update_id;
         if (typeof current !== 'number') return max;
         return typeof max === 'number' ? Math.max(max, current) : current;
-      }, offset);
-      if (typeof maxUpdateId === 'number') {
-        offset = maxUpdateId + 1;
-      }
+      }, undefined);
 
       const mappings = extractDiscussionMappings(updates);
       if (mappings.length > 0) {
@@ -98,6 +96,12 @@ export function startDiscussionPoller(options: StartDiscussionPollerOptions): ()
         } catch (error) {
           warn(`查询讨论群置顶消息失败：${error instanceof Error ? error.message : String(error)}`);
         }
+      }
+
+      await options.onUpdates?.(updates);
+
+      if (typeof maxUpdateId === 'number') {
+        offset = maxUpdateId + 1;
       }
     } catch (error) {
       warn(`轮询讨论群更新失败：${error instanceof Error ? error.message : String(error)}`);
