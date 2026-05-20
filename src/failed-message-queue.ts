@@ -46,7 +46,8 @@ export interface StartFailedMessageRetryWorkerOptions {
     message: Record<string, unknown>,
     count: number,
     star: number,
-    sendResult: TelegramSendResult
+    sendResult: TelegramSendResult,
+    mainPushedAt: Date
   ) => Promise<void>;
   info?: (message: string) => void;
   warn?: (message: string) => void;
@@ -196,6 +197,7 @@ export function startFailedMessageRetryWorker(options: StartFailedMessageRetryWo
         options.inFlight.add(record.dedupeKey);
         try {
           const sendResult = await options.send(record.text);
+          const mainPushedAt = new Date();
           options.delivered.add(record.dedupeKey);
           await options.queue.remove(record.dedupeKey);
           info(`主推送补发成功：dedupeKey=${record.dedupeKey}`);
@@ -203,7 +205,7 @@ export function startFailedMessageRetryWorker(options: StartFailedMessageRetryWo
           if (options.afterDelivered) {
             try {
               const message = parseAlphaMessage(record.raw);
-              await options.afterDelivered(message, record.count, record.star, sendResult);
+              await options.afterDelivered(message, record.count, record.star, sendResult, mainPushedAt);
             } catch (error) {
               warn(`主推送补发后的分析处理失败：${errorMessage(error)}`);
             }

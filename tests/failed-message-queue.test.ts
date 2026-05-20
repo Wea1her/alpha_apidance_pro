@@ -1,7 +1,7 @@
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FailedMessageQueue, startFailedMessageRetryWorker } from '../src/failed-message-queue.js';
 
 async function createQueue(options: { maxAttempts?: number; baseDelayMs?: number } = {}) {
@@ -72,13 +72,23 @@ describe('FailedMessageQueue', () => {
 });
 
 describe('startFailedMessageRetryWorker', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('retries due records, removes them after success, and runs afterDelivered', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-20T08:44:00.000Z'));
+    const mainPushedAt = new Date('2026-05-20T08:45:00.000Z');
     const { queue } = await createQueue();
     await queue.enqueue(failedRecord, new Date('2026-05-16T00:00:00.000Z'));
 
     const delivered = new Set<string>();
     const inFlight = new Set<string>();
-    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 99 });
+    const send = vi.fn().mockImplementation(async () => {
+      vi.setSystemTime(mainPushedAt);
+      return { chatId: -1001, messageId: 99 };
+    });
     const afterDelivered = vi.fn();
 
     const stop = startFailedMessageRetryWorker({
@@ -104,7 +114,8 @@ describe('startFailedMessageRetryWorker', () => {
       expect.objectContaining({ title: 'A 关注了 B' }),
       8,
       2,
-      { chatId: -1001, messageId: 99 }
+      { chatId: -1001, messageId: 99 },
+      mainPushedAt
     );
   });
 });

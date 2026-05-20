@@ -19,7 +19,8 @@ import { triggerAnalysisComment } from './analysis-service.js';
 import { AnalysisTracker } from './analysis-tracker.js';
 import {
   AnalysisTaskQueue,
-  startAnalysisRetryWorker
+  startAnalysisRetryWorker,
+  type AnalysisTaskRecord
 } from './analysis-task-queue.js';
 import { DiscussionMappingStore } from './discussion-store.js';
 import { startDiscussionPoller } from './discussion-poller.js';
@@ -443,17 +444,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   };
 
   const processAnalysisTask = async (
-    task: {
-      taskKey: string;
-      projectKey: string;
-      channelChatId: number;
-      channelMessageId: number;
-      title: string;
-      content: string;
-      link: string;
-      count: number;
-      star: number;
-    }
+    task: AnalysisTaskRecord
   ): Promise<{ status: 'done' | 'retry'; reason?: string }> => {
     if (!options.config.xaiApiKey) {
       return { status: 'done' };
@@ -518,14 +509,14 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     delivered: dedupe,
     inFlight,
     send: sendMainTelegramMessage,
-    afterDelivered: async (message, count, star, sendResult) => {
+    afterDelivered: async (message, count, star, sendResult, mainPushedAt) => {
       const projectKey = buildProjectKey(message);
       const maxStar = options.config.commonFollowStarLevels.length;
       projectStars.set(projectKey, Math.max(projectStars.get(projectKey) ?? 0, star));
       if (!projectPushCounts.has(projectKey)) {
         projectPushCounts.set(projectKey, star >= maxStar ? maxStar : star);
       }
-      await handleAfterMainSend(message, count, star, sendResult, new Date());
+      await handleAfterMainSend(message, count, star, sendResult, mainPushedAt);
       await persistProjectState();
     },
     info,
