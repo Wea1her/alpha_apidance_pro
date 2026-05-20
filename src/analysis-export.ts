@@ -64,13 +64,15 @@ export function buildAnalysisExport(
 ): { projectCount: number; markdown: string } {
   const analysesByProject = firstAnalysesByProject(records);
   const rangedRecordsByProject = new Map<string, AnalysisArchiveRecord[]>();
+  const fromMs = range.from.getTime();
+  const toMs = range.to.getTime();
 
   for (const record of records) {
     if (!analysesByProject.has(record.projectKey)) {
       continue;
     }
-    const pushedAt = new Date(record.mainPushedAt).getTime();
-    if (pushedAt < range.from.getTime() || pushedAt > range.to.getTime()) {
+    const pushedAt = parseMainPushedAtMs(record);
+    if (pushedAt === null || pushedAt < fromMs || pushedAt > toMs) {
       continue;
     }
     const projectRecords = rangedRecordsByProject.get(record.projectKey) ?? [];
@@ -90,7 +92,9 @@ export function buildAnalysisExport(
         records: [...projectRecords].sort(compareRecordsByMainPushedAt),
         highestStar: Math.max(...projectRecords.map((record) => record.star)),
         highestCount: Math.max(...projectRecords.map((record) => record.count)),
-        firstPushedAtMs: Math.min(...projectRecords.map((record) => new Date(record.mainPushedAt).getTime()))
+        firstPushedAtMs: Math.min(
+          ...projectRecords.map((record) => parseMainPushedAtMs(record) ?? Number.POSITIVE_INFINITY)
+        )
       };
     })
     .sort(compareProjects);
@@ -117,8 +121,10 @@ export function buildAnalysisExport(
     group.forEach((project, index) => {
       const channelUrl = messageUrl(project.analysis.channelMessage);
       const discussionUrl = messageUrl(project.analysis.discussionAnalysisMessage);
-      lines.push(`### ${index + 1}. ${project.analysis.title || project.projectKey}`);
-      lines.push(`- 链接：${project.analysis.link}`);
+      const title =
+        normalizeMarkdownInlineText(project.analysis.title) || normalizeMarkdownInlineText(project.projectKey);
+      lines.push(`### ${index + 1}. ${title}`);
+      lines.push(`- 链接：${normalizeMarkdownInlineText(project.analysis.link)}`);
       lines.push(`- 最高星级：${project.highestStar} 星`);
       lines.push(`- 最高监控池关注数：${project.highestCount}`);
       lines.push(`- 首次主推送时间：${formatShanghaiMinute(new Date(project.firstPushedAtMs))}`);
@@ -150,6 +156,9 @@ function firstAnalysesByProject(records: readonly AnalysisArchiveRecord[]): Map<
 
   for (const record of records) {
     if (record.recordType !== 'analysis') {
+      continue;
+    }
+    if (parseMainPushedAtMs(record) === null) {
       continue;
     }
     const existing = analysesByProject.get(record.projectKey);
@@ -203,8 +212,19 @@ function normalizeUsername(username: string | undefined): string | null {
   return normalized ? normalized : null;
 }
 
+function parseMainPushedAtMs(record: AnalysisArchiveRecord): number | null {
+  const pushedAt = new Date(record.mainPushedAt).getTime();
+  return Number.isNaN(pushedAt) ? null : pushedAt;
+}
+
+function normalizeMarkdownInlineText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
 function compareRecordsByMainPushedAt(a: AnalysisArchiveRecord, b: AnalysisArchiveRecord): number {
-  const byTime = new Date(a.mainPushedAt).getTime() - new Date(b.mainPushedAt).getTime();
+  const byTime =
+    (parseMainPushedAtMs(a) ?? Number.POSITIVE_INFINITY) -
+    (parseMainPushedAtMs(b) ?? Number.POSITIVE_INFINITY);
   if (byTime !== 0) {
     return byTime;
   }

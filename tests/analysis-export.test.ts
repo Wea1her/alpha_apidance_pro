@@ -64,6 +64,18 @@ describe('parseShanghaiHourRange', () => {
     );
     expect(() => parseShanghaiHourRange('2026-05-20T19', '2026-05-20T18')).toThrow('开始时间不能晚于结束时间');
   });
+
+  it('rejects invalid calendar inputs', () => {
+    expect(() => parseShanghaiHourRange('2026-02-29T09', '2026-03-01T09')).toThrow(
+      '时间格式必须是 YYYY-MM-DDTHH'
+    );
+    expect(() => parseShanghaiHourRange('2026-13-01T09', '2026-13-01T10')).toThrow(
+      '时间格式必须是 YYYY-MM-DDTHH'
+    );
+    expect(() => parseShanghaiHourRange('2026-05-20T24', '2026-05-21T00')).toThrow(
+      '时间格式必须是 YYYY-MM-DDTHH'
+    );
+  });
 });
 
 describe('isExportAuthorized', () => {
@@ -194,6 +206,57 @@ describe('buildAnalysisExport', () => {
     expect(result.markdown).toContain('最早完整分析');
     expect(result.markdown).not.toContain('范围内较晚分析');
     expect(result.markdown).toContain('- 2026-05-20 10:00，3 星，监控池关注数 12');
+  });
+
+  it('omits records with invalid mainPushedAt and does not use them as earliest analysis', () => {
+    const range = parseShanghaiHourRange('2026-05-20T09', '2026-05-20T12');
+    const result = buildAnalysisExport(
+      [
+        analysisRecord({
+          sourceTaskKey: 'a:invalid',
+          mainPushedAt: 'not-a-date',
+          analysisText: 'invalid analysis must be skipped'
+        }),
+        analysisRecord({
+          sourceTaskKey: 'a:valid',
+          mainPushedAt: '2026-05-20T01:00:00.000Z',
+          analysisText: 'valid analysis must be exported'
+        }),
+        hitRecord({
+          sourceTaskKey: 'a:invalid-hit',
+          mainPushedAt: 'also-not-a-date',
+          count: 99,
+          star: 5
+        })
+      ],
+      range
+    );
+
+    expect(result.projectCount).toBe(1);
+    expect(result.markdown).toContain('valid analysis must be exported');
+    expect(result.markdown).not.toContain('invalid analysis must be skipped');
+    expect(result.markdown).not.toContain('NaN');
+    expect(result.markdown).not.toContain('99');
+  });
+
+  it('normalizes metadata fields to one line without changing analysis text', () => {
+    const range = parseShanghaiHourRange('2026-05-20T09', '2026-05-20T12');
+    const result = buildAnalysisExport(
+      [
+        analysisRecord({
+          title: 'Project A\n## Injected Heading',
+          link: 'https://x.com/project_a\n- injected list item',
+          analysisText: 'raw analysis\n## preserved heading\n- preserved list item'
+        })
+      ],
+      range
+    );
+
+    expect(result.markdown).toContain('### 1. Project A ## Injected Heading');
+    expect(result.markdown).toContain('- 链接：https://x.com/project_a - injected list item');
+    expect(result.markdown).not.toContain('### 1. Project A\n## Injected Heading');
+    expect(result.markdown).not.toContain('- 链接：https://x.com/project_a\n- injected list item');
+    expect(result.markdown).toContain('raw analysis\n## preserved heading\n- preserved list item');
   });
 
   it('returns a useful Markdown document for empty results', () => {
