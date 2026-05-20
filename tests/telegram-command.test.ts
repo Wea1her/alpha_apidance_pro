@@ -107,6 +107,14 @@ describe('extractTelegramCommands', () => {
             from: { id: 125, username: 'dave' },
             chat: { id: -1005, type: 'supergroup' }
           }
+        },
+        {
+          update_id: 3,
+          message: {
+            message_id: 42,
+            text: '导出分析2026-05-20T09 2026-05-20T18',
+            chat: { id: -1006, type: 'supergroup' }
+          }
         }
       ])
     ).toEqual([
@@ -120,8 +128,39 @@ describe('extractTelegramCommands', () => {
         chatId: '-1005',
         messageId: 41,
         username: 'dave'
+      },
+      {
+        type: 'invalid-export-analysis',
+        chatId: '-1006',
+        messageId: 42
       }
     ]);
+  });
+
+  it('defensively handles full getUpdates response objects and non-array inputs', () => {
+    expect(
+      extractTelegramCommands({
+        ok: true,
+        result: [
+          {
+            update_id: 1,
+            message: {
+              message_id: 50,
+              text: '查看聊天ID',
+              chat: { id: -1007, type: 'supergroup' }
+            }
+          }
+        ]
+      })
+    ).toEqual([
+      {
+        type: 'chat-id',
+        chatId: '-1007',
+        messageId: 50
+      }
+    ]);
+    expect(extractTelegramCommands({ ok: false })).toEqual([]);
+    expect(extractTelegramCommands(null)).toEqual([]);
   });
 
   it('ignores unrelated updates and non-text messages', () => {

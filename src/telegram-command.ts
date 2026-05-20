@@ -85,14 +85,21 @@ function parseCommand(context: MessageContext): TelegramCommand | null {
     };
   }
 
+  const startsWithChineseExport = text.startsWith('导出分析');
+  const startsWithEnglishExport = text.startsWith('/export_analysis');
   const isChineseExport = head === '导出分析';
   const isEnglishExport = /^\/export_analysis(?:@[A-Za-z0-9_]+)?$/.test(head ?? '');
-  if (!isChineseExport && !isEnglishExport) {
+  if (!startsWithChineseExport && !startsWithEnglishExport) {
     return null;
   }
 
   const args = parts.slice(1);
-  if (args.length !== 2 || !EXPORT_HOUR_PATTERN.test(args[0]) || !EXPORT_HOUR_PATTERN.test(args[1])) {
+  if (
+    !isChineseExport && !isEnglishExport ||
+    args.length !== 2 ||
+    !EXPORT_HOUR_PATTERN.test(args[0]) ||
+    !EXPORT_HOUR_PATTERN.test(args[1])
+  ) {
     return {
       type: 'invalid-export-analysis',
       ...baseCommand(context)
@@ -107,10 +114,20 @@ function parseCommand(context: MessageContext): TelegramCommand | null {
   };
 }
 
-export function extractTelegramCommands(updates: unknown[]): TelegramCommand[] {
+function updateListFromInput(input: unknown): unknown[] {
+  if (Array.isArray(input)) {
+    return input;
+  }
+  if (isRecord(input) && Array.isArray(input.result)) {
+    return input.result;
+  }
+  return [];
+}
+
+export function extractTelegramCommands(input: unknown): TelegramCommand[] {
   const commands: TelegramCommand[] = [];
 
-  for (const update of updates) {
+  for (const update of updateListFromInput(input)) {
     if (!isRecord(update)) continue;
 
     for (const messageKey of ['message', 'channel_post'] as const) {
