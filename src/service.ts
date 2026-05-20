@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Wallet } from 'ethers';
 import WebSocket from 'ws';
 import {
@@ -15,7 +17,14 @@ import {
 import { classifyAccount, shouldAllowClassifiedAccount } from './account-classifier.js';
 import { buildCommonFollowDecision } from './common-follow-rules.js';
 import type { ServiceConfig } from './config.js';
-import { triggerAnalysisComment } from './analysis-service.js';
+import { triggerAnalysisComment, type TriggerAnalysisResult } from './analysis-service.js';
+import { AnalysisArchiveStore } from './analysis-archive-store.js';
+import {
+  buildAnalysisExport,
+  buildAnalysisExportFilename,
+  isExportAuthorized,
+  parseShanghaiHourRange
+} from './analysis-export.js';
 import { AnalysisTracker } from './analysis-tracker.js';
 import {
   AnalysisTaskQueue,
@@ -34,7 +43,14 @@ import {
   hydrateProjectStateMaps,
   serializeProjectStateMaps
 } from './project-state-store.js';
-import { sendTelegramMessage, type TelegramSendResult } from './telegram.js';
+import { extractTelegramCommands } from './telegram-command.js';
+import {
+  sendTelegramDocument,
+  sendTelegramMessage,
+  type SendTelegramDocumentOptions,
+  type SendTelegramMessageOptions,
+  type TelegramSendResult
+} from './telegram.js';
 
 export interface ClassificationDecision {
   allowPush: boolean;
@@ -339,6 +355,147 @@ function reconnectDelay(attempt: number, minMs: number, maxMs: number): number {
   return Math.min(maxMs, minMs * 2 ** Math.min(attempt, 8));
 }
 
+export async function archiveAnalysisTaskResult(options: {
+  task: AnalysisTaskRecord;
+  result: TriggerAnalysisResult;
+  discussionChatId: string;
+  archiveStore: Pick<AnalysisArchiveStore, 'upsert' | 'getFirstAnalysis'>;
+  analysisTracker: Pick<AnalysisTracker, 'set'>;
+  now?: Date;
+}): Promise<void> {
+  const archivedAt = (options.now ?? new Date()).toISOString();
+  const baseRecord = {
+    version: 1 as const,
+    sourceTaskKey: options.task.taskKey,
+    projectKey: options.task.projectKey,
+    title: options.task.title,
+    content: options.task.content,
+    link: options.task.link,
+    mainPushedAt: options.task.mainPushedAt,
+    archivedAt,
+    star: options.task.star,
+    count: options.task.count,
+    channelMessage: {
+      chatId: options.task.channelChatId,
+      messageId: options.task.channelMessageId
+    }
+  };
+
+  if (options.result.type === 'analysis') {
+    await options.archiveStore.upsert({
+      ...baseRecord,
+      recordType: 'analysis',
+      analysisCreatedAt: archivedAt,
+      discussionAnalysisMessage: {
+        chatId: options.discussionChatId,
+        messageId: options.result.message.messageId
+      },
+      analysisText: options.result.analysisText
+    });
+    options.analysisTracker.set(options.task.projectKey, {
+      discussionChatId: options.discussionChatId,
+      analysisMessageId: options.result.message.messageId
+    });
+    return;
+  }
+
+  const firstAnalysis = await options.archiveStore.getFirstAnalysis(options.task.projectKey);
+  if (!firstAnalysis) {
+    return;
+  }
+  await options.archiveStore.upsert({
+    ...baseRecord,
+    recordType: 'hit',
+    discussionAnalysisMessage: firstAnalysis.discussionAnalysisMessage,
+    reminderMessage: options.result.message
+  });
+}
+
+type TelegramMessageSender = (options: SendTelegramMessageOptions) => Promise<TelegramSendResult>;
+type TelegramDocumentSender = (options: SendTelegramDocumentOptions) => Promise<TelegramSendResult>;
+
+export async function handleTelegramCommandUpdates(options: {
+  updates: unknown;
+  archiveStore: Pick<AnalysisArchiveStore, 'listAll'>;
+  botToken: string;
+  proxyUrl?: string;
+  telegramRetryAttempts: number;
+  telegramRetryMinDelayMs: number;
+  telegramRetryMaxDelayMs: number;
+  exportAdminUsernames: readonly string[];
+  exportAllowedChatIds: readonly string[];
+  exportDir?: string;
+  now?: Date;
+  sendMessage?: TelegramMessageSender;
+  sendDocument?: TelegramDocumentSender;
+  mkdir?: typeof mkdir;
+  writeFile?: typeof writeFile;
+  warn?: (message: string) => void;
+}): Promise<void> {
+  const warn = options.warn ?? console.warn;
+  const sendMessageImpl = options.sendMessage ?? sendTelegramMessage;
+  const sendDocumentImpl = options.sendDocument ?? sendTelegramDocument;
+  const mkdirImpl = options.mkdir ?? mkdir;
+  const writeFileImpl = options.writeFile ?? writeFile;
+  const exportDir = options.exportDir ?? 'data/exports';
+
+  const replyToCommand = (chatId: string, text: string): Promise<TelegramSendResult> =>
+    sendMessageImpl({
+      botToken: options.botToken,
+      chatId,
+      text,
+      proxyUrl: options.proxyUrl,
+      retryAttempts: options.telegramRetryAttempts,
+      retryMinDelayMs: options.telegramRetryMinDelayMs,
+      retryMaxDelayMs: options.telegramRetryMaxDelayMs
+    });
+
+  for (const command of extractTelegramCommands(options.updates)) {
+    if (command.type === 'chat-id') {
+      await replyToCommand(command.chatId, `聊天ID：${command.chatId}`);
+      continue;
+    }
+
+    if (command.type === 'invalid-export-analysis') {
+      await replyToCommand(command.chatId, '用法：导出分析 2026-05-01T09 2026-05-20T18');
+      continue;
+    }
+
+    if (!isExportAuthorized(command, options.exportAdminUsernames, options.exportAllowedChatIds)) {
+      await replyToCommand(command.chatId, '无权限执行分析导出');
+      continue;
+    }
+
+    try {
+      const range = parseShanghaiHourRange(command.from, command.to);
+      const exportResult = buildAnalysisExport(await options.archiveStore.listAll(), range, options.now ?? new Date());
+      if (exportResult.projectCount === 0) {
+        await replyToCommand(command.chatId, '该时间段没有已完成 Grok 分析的项目');
+        continue;
+      }
+
+      await mkdirImpl(exportDir, { recursive: true });
+      const filename = buildAnalysisExportFilename(range);
+      const filePath = join(exportDir, filename);
+      await writeFileImpl(filePath, exportResult.markdown, 'utf8');
+      await sendDocumentImpl({
+        botToken: options.botToken,
+        chatId: command.chatId,
+        filePath,
+        filename,
+        caption: `分析导出：${range.fromLabel} ~ ${range.toLabel}`,
+        proxyUrl: options.proxyUrl,
+        retryAttempts: options.telegramRetryAttempts,
+        retryMinDelayMs: options.telegramRetryMinDelayMs,
+        retryMaxDelayMs: options.telegramRetryMaxDelayMs
+      });
+    } catch (error) {
+      warn(`处理分析导出命令失败：${error instanceof Error ? error.message : String(error)}`);
+      await replyToCommand(command.chatId, '分析导出失败，请检查时间格式或稍后重试');
+    }
+  }
+}
+
 export async function startAlphaService(options: StartAlphaServiceOptions): Promise<() => void> {
   const info = options.info ?? console.info;
   const warn = options.warn ?? console.warn;
@@ -349,6 +506,13 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const projectFirstChannelMessages = new Map<string, ChannelMessageReference>();
   const projectLocks = new Map<string, Promise<void>>();
   const analysisTracker = new AnalysisTracker();
+  const analysisArchive = new AnalysisArchiveStore({
+    filePath: options.config.analysisArchivePath,
+    warn
+  });
+  for (const [projectKey, storedAnalysis] of await analysisArchive.listAnalysisTrackerEntries()) {
+    analysisTracker.set(projectKey, storedAnalysis);
+  }
   const projectStateStore = new ProjectStateStore({
     filePath: options.config.projectStatePath,
     warn
@@ -371,6 +535,19 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   const wallet = new Wallet(options.config.alphaWalletPrivateKey);
   const factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
   const discussionStore = new DiscussionMappingStore();
+  const handleTelegramUpdates = (updates: unknown[]): Promise<void> =>
+    handleTelegramCommandUpdates({
+      updates,
+      archiveStore: analysisArchive,
+      botToken: options.config.telegramBotToken,
+      proxyUrl: options.config.proxyUrl,
+      telegramRetryAttempts: options.config.telegramRetryAttempts,
+      telegramRetryMinDelayMs: options.config.telegramRetryMinDelayMs,
+      telegramRetryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
+      exportAdminUsernames: options.config.exportAdminUsernames,
+      exportAllowedChatIds: options.config.exportAllowedChatIds,
+      warn
+    });
   const stopDiscussionPoller = startDiscussionPoller({
     botToken: options.config.telegramBotToken,
     discussionChatId: options.config.discussionChatId,
@@ -380,7 +557,8 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     retryMinDelayMs: options.config.telegramRetryMinDelayMs,
     retryMaxDelayMs: options.config.telegramRetryMaxDelayMs,
     info,
-    warn
+    warn,
+    onUpdates: handleTelegramUpdates
   });
   const failedQueue = new FailedMessageQueue({
     filePath: options.config.failedQueuePath,
@@ -488,15 +666,18 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       warn
     });
 
-    if (!existingAnalysis && result?.type === 'analysis') {
-      analysisTracker.set(task.projectKey, {
+    if (result) {
+      await archiveAnalysisTaskResult({
+        task,
+        result,
         discussionChatId: options.config.discussionChatId!,
-        analysisMessageId: result.message.messageId
+        archiveStore: analysisArchive,
+        analysisTracker
       });
       return { status: 'done' };
     }
 
-    if (!existingAnalysis && !result) {
+    if (!existingAnalysis) {
       return { status: 'retry', reason: 'analysis result not ready' };
     }
 

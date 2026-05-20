@@ -1,5 +1,14 @@
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { processAlphaMessage } from '../src/service.js';
+import type { AnalysisArchiveRecord } from '../src/analysis-archive-store.js';
+import type { AnalysisTaskRecord } from '../src/analysis-task-queue.js';
+import {
+  archiveAnalysisTaskResult,
+  handleTelegramCommandUpdates,
+  processAlphaMessage
+} from '../src/service.js';
 
 describe('processAlphaMessage', () => {
   it('ignores heartbeat messages', async () => {
@@ -691,5 +700,203 @@ describe('processAlphaMessage', () => {
 
     sendResolves[1]({ chatId: -1001234567890, messageId: 456 });
     await second;
+  });
+});
+
+const analysisTask: AnalysisTaskRecord = {
+  version: 1,
+  taskKey: '-1001:10',
+  projectKey: 'project-a',
+  channelChatId: -1001,
+  channelMessageId: 10,
+  title: 'A 关注了 Project A',
+  content: '你关注的12个用户也关注了ta',
+  link: 'https://x.com/project_a',
+  mainPushedAt: '2026-05-20T01:00:00.000Z',
+  count: 12,
+  star: 3,
+  retryCount: 0,
+  nextRetryAt: '2026-05-20T01:00:00.000Z',
+  createdAt: '2026-05-20T01:00:00.000Z',
+  updatedAt: '2026-05-20T01:00:00.000Z'
+};
+
+const archivedAnalysis: Extract<AnalysisArchiveRecord, { recordType: 'analysis' }> = {
+  version: 1,
+  recordType: 'analysis',
+  sourceTaskKey: '-1001:10',
+  projectKey: 'project-a',
+  title: 'A 关注了 Project A',
+  content: '你关注的12个用户也关注了ta',
+  link: 'https://x.com/project_a',
+  mainPushedAt: '2026-05-20T01:00:00.000Z',
+  archivedAt: '2026-05-20T01:02:00.000Z',
+  analysisCreatedAt: '2026-05-20T01:02:00.000Z',
+  star: 3,
+  count: 12,
+  channelMessage: { chatId: -1001, messageId: 10 },
+  discussionAnalysisMessage: { chatId: '-1002', messageId: 20 },
+  analysisText: 'Project A 完整分析'
+};
+
+describe('archiveAnalysisTaskResult', () => {
+  it('archives first analysis results and hydrates the tracker', async () => {
+    const archiveStore = {
+      upsert: vi.fn().mockResolvedValue(undefined),
+      getFirstAnalysis: vi.fn()
+    };
+    const analysisTracker = { set: vi.fn() };
+
+    await archiveAnalysisTaskResult({
+      task: analysisTask,
+      result: {
+        type: 'analysis',
+        message: { chatId: -1002, messageId: 20 },
+        analysisText: 'Project A 完整分析'
+      },
+      discussionChatId: '-1002',
+      archiveStore,
+      analysisTracker,
+      now: new Date('2026-05-20T01:02:00.000Z')
+    });
+
+    expect(archiveStore.upsert).toHaveBeenCalledWith({
+      ...archivedAnalysis,
+      archivedAt: '2026-05-20T01:02:00.000Z',
+      analysisCreatedAt: '2026-05-20T01:02:00.000Z'
+    });
+    expect(analysisTracker.set).toHaveBeenCalledWith('project-a', {
+      discussionChatId: '-1002',
+      analysisMessageId: 20
+    });
+  });
+
+  it('archives repeat hits when the project already has analysis text', async () => {
+    const archiveStore = {
+      upsert: vi.fn().mockResolvedValue(undefined),
+      getFirstAnalysis: vi.fn().mockResolvedValue(archivedAnalysis)
+    };
+    const analysisTracker = { set: vi.fn() };
+
+    await archiveAnalysisTaskResult({
+      task: {
+        ...analysisTask,
+        taskKey: '-1001:11',
+        channelMessageId: 11,
+        mainPushedAt: '2026-05-20T03:00:00.000Z',
+        count: 20,
+        star: 5
+      },
+      result: {
+        type: 'reminder',
+        message: { chatId: -1002, messageId: 21 },
+        existingAnalysis: { discussionChatId: '-1002', analysisMessageId: 20 }
+      },
+      discussionChatId: '-1002',
+      archiveStore,
+      analysisTracker,
+      now: new Date('2026-05-20T03:02:00.000Z')
+    });
+
+    expect(archiveStore.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      recordType: 'hit',
+      sourceTaskKey: '-1001:11',
+      projectKey: 'project-a',
+      mainPushedAt: '2026-05-20T03:00:00.000Z',
+      star: 5,
+      count: 20,
+      channelMessage: { chatId: -1001, messageId: 11 },
+      discussionAnalysisMessage: { chatId: '-1002', messageId: 20 },
+      reminderMessage: { chatId: -1002, messageId: 21 }
+    }));
+    expect(analysisTracker.set).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleTelegramCommandUpdates', () => {
+  it('writes and sends markdown export documents for authorized commands', async () => {
+    const exportDir = await mkdtemp(join(tmpdir(), 'analysis-export-'));
+    const sendDocument = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 30 });
+    const sendMessage = vi.fn();
+
+    await handleTelegramCommandUpdates({
+      updates: [
+        {
+          update_id: 1,
+          channel_post: {
+            message_id: 50,
+            text: '导出分析 2026-05-20T09 2026-05-20T09',
+            chat: { id: -1001, type: 'channel' }
+          }
+        }
+      ],
+      archiveStore: { listAll: vi.fn().mockResolvedValue([archivedAnalysis]) },
+      botToken: 'bot-token',
+      telegramRetryAttempts: 2,
+      telegramRetryMinDelayMs: 10,
+      telegramRetryMaxDelayMs: 20,
+      exportAdminUsernames: [],
+      exportAllowedChatIds: ['-1001'],
+      exportDir,
+      now: new Date('2026-05-20T02:00:00.000Z'),
+      sendMessage,
+      sendDocument
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendDocument).toHaveBeenCalledWith(expect.objectContaining({
+      botToken: 'bot-token',
+      chatId: '-1001',
+      filename: 'alpha-analysis-2026-05-20T09-2026-05-20T09.md',
+      caption: '分析导出：2026-05-20 09:00 ~ 2026-05-20 09:59'
+    }));
+    const filePath = sendDocument.mock.calls[0][0].filePath;
+    await expect(readFile(filePath, 'utf8')).resolves.toContain('Project A 完整分析');
+  });
+
+  it('replies to chat id commands and rejects unauthorized exports', async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 31 });
+    const sendDocument = vi.fn();
+
+    await handleTelegramCommandUpdates({
+      updates: [
+        {
+          update_id: 1,
+          message: {
+            message_id: 51,
+            text: '查看聊天ID',
+            chat: { id: -1001, type: 'supergroup' }
+          }
+        },
+        {
+          update_id: 2,
+          message: {
+            message_id: 52,
+            text: '导出分析 2026-05-20T09 2026-05-20T09',
+            from: { username: 'mallory' },
+            chat: { id: -1001, type: 'supergroup' }
+          }
+        }
+      ],
+      archiveStore: { listAll: vi.fn() },
+      botToken: 'bot-token',
+      telegramRetryAttempts: 2,
+      telegramRetryMinDelayMs: 10,
+      telegramRetryMaxDelayMs: 20,
+      exportAdminUsernames: ['alice'],
+      exportAllowedChatIds: [],
+      sendMessage,
+      sendDocument
+    });
+
+    expect(sendMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      chatId: '-1001',
+      text: '聊天ID：-1001'
+    }));
+    expect(sendMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      chatId: '-1001',
+      text: '无权限执行分析导出'
+    }));
+    expect(sendDocument).not.toHaveBeenCalled();
   });
 });
