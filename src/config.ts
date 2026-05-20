@@ -72,6 +72,12 @@ function parseCsvList(raw: string | undefined): string[] {
     .filter((value) => value.length > 0);
 }
 
+function parseUsernameList(raw: string | undefined): string[] {
+  return parseCsvList(raw)
+    .map((value) => value.replace(/^@/, '').toLowerCase())
+    .filter((value) => value.length > 0);
+}
+
 export function parseServiceConfig(env: EnvLike): ServiceConfig {
   return {
     alphaWalletPrivateKey: requireEnv(env, 'ALPHA_WALLET_PRIVATE_KEY'),
@@ -106,7 +112,7 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     analysisQueueRetryIntervalMs: parsePositiveInteger(env, 'ANALYSIS_QUEUE_RETRY_INTERVAL_MS', 30_000),
     analysisQueueMaxAttempts: parsePositiveInteger(env, 'ANALYSIS_QUEUE_MAX_ATTEMPTS', 30),
     analysisArchivePath: env.ANALYSIS_ARCHIVE_PATH?.trim() || 'data/analysis-archive.jsonl',
-    exportAdminUsernames: parseCsvList(env.EXPORT_ADMIN_USERNAMES),
+    exportAdminUsernames: parseUsernameList(env.EXPORT_ADMIN_USERNAMES),
     exportAllowedChatIds: parseCsvList(env.EXPORT_ALLOWED_CHAT_IDS),
     projectStatePath: env.PROJECT_STATE_PATH?.trim() || 'data/project-state.json'
   };

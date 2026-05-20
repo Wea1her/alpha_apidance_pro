@@ -138,7 +138,7 @@ describe('parseServiceConfig', () => {
     });
 
     expect(config.analysisArchivePath).toBe('data/custom-analysis-archive.jsonl');
-    expect(config.exportAdminUsernames).toEqual(['Alice', '@Bob']);
+    expect(config.exportAdminUsernames).toEqual(['alice', 'bob']);
     expect(config.exportAllowedChatIds).toEqual(['-1001', '-1002']);
   });
 
