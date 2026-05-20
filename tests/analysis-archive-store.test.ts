@@ -63,6 +63,53 @@ describe('AnalysisArchiveStore', () => {
     expect(warn.mock.calls[0][0]).toContain('跳过无效分析归档行');
   });
 
+  it('skips valid JSONL lines with invalid record shape with a warning', async () => {
+    const filePath = await tempPath();
+    await writeFile(filePath, `${JSON.stringify(analysisRecord)}\n{"recordType":"analysis"}\n`, 'utf8');
+    const warn = vi.fn();
+    const store = new AnalysisArchiveStore({ filePath, warn });
+
+    await expect(store.listAll()).resolves.toEqual([analysisRecord]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('跳过无效分析归档行');
+  });
+
+  it('preserves invalid raw lines when upserting archive records', async () => {
+    const filePath = await tempPath();
+    await writeFile(filePath, `${JSON.stringify(analysisRecord)}\n{bad json\n`, 'utf8');
+    const store = new AnalysisArchiveStore({ filePath });
+    const secondRecord: AnalysisArchiveRecord = {
+      ...analysisRecord,
+      sourceTaskKey: '-1001:11',
+      projectKey: 'project-b',
+      discussionAnalysisMessage: { chatId: '-1003', messageId: 30 }
+    };
+
+    await store.upsert(secondRecord);
+
+    const lines = (await readFile(filePath, 'utf8')).trim().split('\n');
+    expect(lines).toContain('{bad json');
+    const validRecords = lines
+      .filter((line) => line !== '{bad json')
+      .map((line) => JSON.parse(line) as AnalysisArchiveRecord);
+    expect(validRecords).toEqual([analysisRecord, secondRecord]);
+  });
+
+  it('serializes concurrent upserts on the same store', async () => {
+    const filePath = await tempPath();
+    const store = new AnalysisArchiveStore({ filePath });
+    const secondRecord: AnalysisArchiveRecord = {
+      ...analysisRecord,
+      sourceTaskKey: '-1001:11',
+      projectKey: 'project-b',
+      discussionAnalysisMessage: { chatId: '-1003', messageId: 30 }
+    };
+
+    await Promise.all([store.upsert(analysisRecord), store.upsert(secondRecord)]);
+
+    await expect(store.listAll()).resolves.toEqual([analysisRecord, secondRecord]);
+  });
+
   it('finds the first analysis record for a project', async () => {
     const filePath = await tempPath();
     const laterRecord: AnalysisArchiveRecord = {
