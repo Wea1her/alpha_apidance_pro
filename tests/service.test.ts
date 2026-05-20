@@ -811,6 +811,30 @@ describe('archiveAnalysisTaskResult', () => {
     }));
     expect(analysisTracker.set).not.toHaveBeenCalled();
   });
+
+  it('does not overwrite an existing analysis with a same-task reminder after restart', async () => {
+    const archiveStore = {
+      upsert: vi.fn().mockResolvedValue(undefined),
+      getFirstAnalysis: vi.fn().mockResolvedValue(archivedAnalysis)
+    };
+    const analysisTracker = { set: vi.fn() };
+
+    await archiveAnalysisTaskResult({
+      task: analysisTask,
+      result: {
+        type: 'reminder',
+        message: { chatId: -1002, messageId: 21 },
+        existingAnalysis: { discussionChatId: '-1002', analysisMessageId: 20 }
+      },
+      discussionChatId: '-1002',
+      archiveStore,
+      analysisTracker,
+      now: new Date('2026-05-20T01:03:00.000Z')
+    });
+
+    expect(archiveStore.upsert).not.toHaveBeenCalled();
+    expect(analysisTracker.set).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleTelegramCommandUpdates', () => {
@@ -898,5 +922,36 @@ describe('handleTelegramCommandUpdates', () => {
       text: '无权限执行分析导出'
     }));
     expect(sendDocument).not.toHaveBeenCalled();
+  });
+
+  it('checks export authorization before replying with invalid export usage', async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 31 });
+
+    await handleTelegramCommandUpdates({
+      updates: [
+        {
+          update_id: 1,
+          message: {
+            message_id: 53,
+            text: '导出分析 2026-05-20T09',
+            from: { username: 'mallory' },
+            chat: { id: -1001, type: 'supergroup' }
+          }
+        }
+      ],
+      archiveStore: { listAll: vi.fn() },
+      botToken: 'bot-token',
+      telegramRetryAttempts: 2,
+      telegramRetryMinDelayMs: 10,
+      telegramRetryMaxDelayMs: 20,
+      exportAdminUsernames: ['alice'],
+      exportAllowedChatIds: [],
+      sendMessage
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      chatId: '-1001',
+      text: '无权限执行分析导出'
+    }));
   });
 });

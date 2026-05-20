@@ -403,6 +403,9 @@ export async function archiveAnalysisTaskResult(options: {
   if (!firstAnalysis) {
     return;
   }
+  if (firstAnalysis.sourceTaskKey === options.task.taskKey) {
+    return;
+  }
   await options.archiveStore.upsert({
     ...baseRecord,
     recordType: 'hit',
@@ -456,13 +459,16 @@ export async function handleTelegramCommandUpdates(options: {
       continue;
     }
 
-    if (command.type === 'invalid-export-analysis') {
-      await replyToCommand(command.chatId, '用法：导出分析 2026-05-01T09 2026-05-20T18');
+    if (
+      (command.type === 'export-analysis' || command.type === 'invalid-export-analysis') &&
+      !isExportAuthorized(command, options.exportAdminUsernames, options.exportAllowedChatIds)
+    ) {
+      await replyToCommand(command.chatId, '无权限执行分析导出');
       continue;
     }
 
-    if (!isExportAuthorized(command, options.exportAdminUsernames, options.exportAllowedChatIds)) {
-      await replyToCommand(command.chatId, '无权限执行分析导出');
+    if (command.type === 'invalid-export-analysis') {
+      await replyToCommand(command.chatId, '用法：导出分析 2026-05-01T09 2026-05-20T18');
       continue;
     }
 
