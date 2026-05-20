@@ -46,8 +46,6 @@ describe('triggerAnalysisComment', () => {
     expect(result).toEqual({
       type: 'reminder',
       message: { messageId: 556, chatId: -1003769834276 },
-      messageId: 556,
-      chatId: -1003769834276,
       existingAnalysis: existing
     });
     expect(reply).toHaveBeenCalledWith(expect.objectContaining({
@@ -118,8 +116,6 @@ describe('triggerAnalysisComment', () => {
     ).resolves.toEqual({
       type: 'analysis',
       message: { messageId: 556, chatId: -1003769834276 },
-      messageId: 556,
-      chatId: -1003769834276,
       analysisText: '1. 项目核心信息：test'
     });
 

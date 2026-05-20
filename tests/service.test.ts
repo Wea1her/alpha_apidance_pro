@@ -62,6 +62,42 @@ describe('processAlphaMessage', () => {
     expect(send.mock.calls[0][0]).toContain('https://x.com/b');
   });
 
+  it('passes the main push success time to afterSend', async () => {
+    vi.useFakeTimers();
+    const mainPushedAt = new Date('2026-05-20T08:30:45.123Z');
+    vi.setSystemTime(mainPushedAt);
+    const sendResult = { chatId: -1001, messageId: 10 };
+    const send = vi.fn().mockResolvedValue(sendResult);
+    const afterSend = vi.fn();
+
+    try {
+      await processAlphaMessage({
+        raw: JSON.stringify({
+          channel: 'follow',
+          title: 'A 关注了 B',
+          content: '用户简介:...\n你关注的10个用户也关注了ta',
+          link: 'https://x.com/b',
+          push_at: 1778660297
+        }),
+        receivedAt: new Date(1778660298123),
+        commonFollowStarLevels: [5, 8, 12, 15, 20],
+        dedupe: new Set(),
+        send,
+        afterSend
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(afterSend).toHaveBeenCalledWith(
+      expect.any(Object),
+      10,
+      2,
+      sendResult,
+      mainPushedAt
+    );
+  });
+
   it('classifies and analyzes 1-star project events before sending', async () => {
     const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
     const afterSend = vi.fn();

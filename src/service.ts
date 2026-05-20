@@ -66,7 +66,8 @@ export interface ProcessAlphaMessageOptions {
     message: Record<string, unknown>,
     count: number,
     star: number,
-    sendResult: TelegramSendResult
+    sendResult: TelegramSendResult,
+    mainPushedAt: Date
   ) => Promise<void>;
   enqueueFailedMainPush?: (record: FailedMainPushInput) => Promise<void>;
   persistProjectState?: () => Promise<void>;
@@ -286,8 +287,10 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       );
 
       let sendResult: TelegramSendResult;
+      let mainPushedAt: Date;
       try {
         sendResult = await options.send(text);
+        mainPushedAt = new Date();
         options.projectStars?.set(projectKey, decision.star);
         options.projectPushCounts?.set(projectKey, pushCount);
         if (!options.projectFirstChannelMessages?.has(projectKey)) {
@@ -323,7 +326,7 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       }
 
       if (options.afterSend) {
-        await options.afterSend(message, count, decision.star, sendResult);
+        await options.afterSend(message, count, decision.star, sendResult, mainPushedAt);
       }
     });
   } finally {
@@ -411,7 +414,8 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     message: Record<string, unknown>,
     count: number,
     star: number,
-    sendResult: TelegramSendResult
+    sendResult: TelegramSendResult,
+    mainPushedAt: Date
   ): Promise<void> => {
     const projectKey = buildProjectKey(message);
     if (!projectFirstChannelMessages.has(projectKey)) {
@@ -430,6 +434,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       title: messageString(message, 'title'),
       content: messageString(message, 'content'),
       link,
+      mainPushedAt: mainPushedAt.toISOString(),
       count,
       star
     };
@@ -492,10 +497,10 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       warn
     });
 
-    if (!existingAnalysis && result && typeof result.messageId === 'number') {
+    if (!existingAnalysis && result?.type === 'analysis') {
       analysisTracker.set(task.projectKey, {
         discussionChatId: options.config.discussionChatId!,
-        analysisMessageId: result.messageId
+        analysisMessageId: result.message.messageId
       });
       return { status: 'done' };
     }
@@ -520,7 +525,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       if (!projectPushCounts.has(projectKey)) {
         projectPushCounts.set(projectKey, star >= maxStar ? maxStar : star);
       }
-      await handleAfterMainSend(message, count, star, sendResult);
+      await handleAfterMainSend(message, count, star, sendResult, new Date());
       await persistProjectState();
     },
     info,

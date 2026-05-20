@@ -34,8 +34,6 @@ export interface AnalysisTaskInput {
   lastError?: string;
 }
 
-type LegacyAnalysisTaskInput = Omit<AnalysisTaskInput, 'mainPushedAt'>;
-
 export interface AnalysisTaskQueueOptions {
   filePath: string;
   deadLetterPath: string;
@@ -176,10 +174,9 @@ export class AnalysisTaskQueue {
     }
   }
 
-  async enqueue(input: AnalysisTaskInput | LegacyAnalysisTaskInput, now = new Date()): Promise<void> {
+  async enqueue(input: AnalysisTaskInput, now = new Date()): Promise<void> {
     const records = await this.listAll();
     const existing = records.find((record) => record.taskKey === input.taskKey);
-    const mainPushedAt = 'mainPushedAt' in input ? input.mainPushedAt : undefined;
     const timestamp = now.toISOString();
     const record: AnalysisTaskRecord = {
       version: 1,
@@ -190,7 +187,7 @@ export class AnalysisTaskQueue {
       title: input.title,
       content: input.content,
       link: input.link,
-      mainPushedAt: mainPushedAt ?? existing?.mainPushedAt ?? timestamp,
+      mainPushedAt: input.mainPushedAt,
       count: input.count,
       star: input.star,
       retryCount: existing ? existing.retryCount : 0,

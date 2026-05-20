@@ -52,16 +52,16 @@ export interface TriggerAnalysisOptions {
 }
 
 export type TriggerAnalysisResult =
-  | ({
+  | {
       type: 'analysis';
       message: TelegramSendResult;
       analysisText: string;
-    } & TelegramSendResult)
-  | ({
+    }
+  | {
       type: 'reminder';
       message: TelegramSendResult;
       existingAnalysis: StoredAnalysis;
-    } & TelegramSendResult);
+    };
 
 function removeAnalysisSourceBlock(text: string): string {
   const lines = text.trim().split('\n');
@@ -114,7 +114,6 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
     });
     info(`已回复既有分析评论：${options.projectKey}`);
     return {
-      ...reminderResult,
       type: 'reminder',
       message: reminderResult,
       existingAnalysis: options.existingAnalysis
@@ -186,7 +185,6 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
 
   info(`已写入讨论群评论：${mapping.discussionChatId}/${mapping.discussionMessageId}`);
   return {
-    ...replyResult,
     type: 'analysis',
     message: replyResult,
     analysisText: cleanedAnalysis
