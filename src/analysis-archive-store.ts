@@ -50,11 +50,11 @@ export interface AnalysisArchiveStoreOptions {
 }
 
 type ArchiveLine = { type: 'record'; record: AnalysisArchiveRecord } | { type: 'raw'; line: string };
+const writeQueuesByFilePath = new Map<string, Promise<void>>();
 
 export class AnalysisArchiveStore {
   private readonly filePath: string;
   private readonly warn: (message: string) => void;
-  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(options: AnalysisArchiveStoreOptions) {
     this.filePath = options.filePath;
@@ -68,8 +68,13 @@ export class AnalysisArchiveStore {
   }
 
   async upsert(record: AnalysisArchiveRecord): Promise<void> {
-    const operation = this.writeQueue.then(() => this.upsertLocked(record));
-    this.writeQueue = operation.catch(() => undefined);
+    if (!isAnalysisArchiveRecord(record)) {
+      throw new Error('Invalid analysis archive record');
+    }
+
+    const previousOperation = writeQueuesByFilePath.get(this.filePath) ?? Promise.resolve();
+    const operation = previousOperation.then(() => this.upsertLocked(record));
+    writeQueuesByFilePath.set(this.filePath, operation.catch(() => undefined));
     return operation;
   }
 

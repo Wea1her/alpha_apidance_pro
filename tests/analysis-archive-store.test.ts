@@ -27,6 +27,22 @@ const analysisRecord = {
   analysisText: '完整分析'
 };
 
+const hitRecord = {
+  version: 1 as const,
+  recordType: 'hit' as const,
+  sourceTaskKey: '-1001:10',
+  projectKey: 'project-a',
+  title: 'A 又被关注',
+  content: '你关注的13个用户也关注了ta',
+  link: 'https://x.com/project_a',
+  mainPushedAt: '2026-05-20T03:00:00.000Z',
+  archivedAt: '2026-05-20T03:01:00.000Z',
+  star: 3,
+  count: 13,
+  channelMessage: { chatId: -1001, messageId: 11 },
+  discussionAnalysisMessage: { chatId: '-1002', messageId: 21 }
+};
+
 describe('AnalysisArchiveStore', () => {
   it('upserts archive records by sourceTaskKey', async () => {
     const filePath = await tempPath();
@@ -50,6 +66,25 @@ describe('AnalysisArchiveStore', () => {
 
     const lines = (await readFile(filePath, 'utf8')).trim().split('\n');
     expect(lines).toHaveLength(1);
+  });
+
+  it('replaces records with the same sourceTaskKey across record types', async () => {
+    const filePath = await tempPath();
+    const store = new AnalysisArchiveStore({ filePath });
+
+    await store.upsert(hitRecord);
+    await store.upsert(analysisRecord);
+
+    await expect(store.listAll()).resolves.toEqual([analysisRecord]);
+  });
+
+  it('rejects invalid upsert data without writing', async () => {
+    const filePath = await tempPath();
+    const store = new AnalysisArchiveStore({ filePath });
+    const invalidRecord = { recordType: 'analysis' } as unknown as AnalysisArchiveRecord;
+
+    await expect(store.upsert(invalidRecord)).rejects.toThrow('Invalid analysis archive record');
+    await expect(store.listAll()).resolves.toEqual([]);
   });
 
   it('skips invalid JSONL lines with a warning', async () => {
@@ -76,7 +111,8 @@ describe('AnalysisArchiveStore', () => {
 
   it('preserves invalid raw lines when upserting archive records', async () => {
     const filePath = await tempPath();
-    await writeFile(filePath, `${JSON.stringify(analysisRecord)}\n{bad json\n`, 'utf8');
+    const invalidShapeLine = '{"recordType":"analysis"}';
+    await writeFile(filePath, `${JSON.stringify(analysisRecord)}\n{bad json\n${invalidShapeLine}\n`, 'utf8');
     const store = new AnalysisArchiveStore({ filePath });
     const secondRecord: AnalysisArchiveRecord = {
       ...analysisRecord,
@@ -89,8 +125,9 @@ describe('AnalysisArchiveStore', () => {
 
     const lines = (await readFile(filePath, 'utf8')).trim().split('\n');
     expect(lines).toContain('{bad json');
+    expect(lines).toContain(invalidShapeLine);
     const validRecords = lines
-      .filter((line) => line !== '{bad json')
+      .filter((line) => line !== '{bad json' && line !== invalidShapeLine)
       .map((line) => JSON.parse(line) as AnalysisArchiveRecord);
     expect(validRecords).toEqual([analysisRecord, secondRecord]);
   });
@@ -110,6 +147,22 @@ describe('AnalysisArchiveStore', () => {
     await expect(store.listAll()).resolves.toEqual([analysisRecord, secondRecord]);
   });
 
+  it('serializes concurrent upserts across store instances for the same file', async () => {
+    const filePath = await tempPath();
+    const firstStore = new AnalysisArchiveStore({ filePath });
+    const secondStore = new AnalysisArchiveStore({ filePath });
+    const secondRecord: AnalysisArchiveRecord = {
+      ...analysisRecord,
+      sourceTaskKey: '-1001:11',
+      projectKey: 'project-b',
+      discussionAnalysisMessage: { chatId: '-1003', messageId: 30 }
+    };
+
+    await Promise.all([firstStore.upsert(analysisRecord), secondStore.upsert(secondRecord)]);
+
+    await expect(firstStore.listAll()).resolves.toEqual([analysisRecord, secondRecord]);
+  });
+
   it('finds the first analysis record for a project', async () => {
     const filePath = await tempPath();
     const laterRecord: AnalysisArchiveRecord = {
@@ -123,25 +176,17 @@ describe('AnalysisArchiveStore', () => {
       mainPushedAt: '2026-05-20T01:00:00.000Z',
       discussionAnalysisMessage: { chatId: -1002, messageId: 19 }
     };
-    const hitRecord: AnalysisArchiveRecord = {
-      version: 1,
-      recordType: 'hit',
+    const earlierHitRecord: AnalysisArchiveRecord = {
+      ...hitRecord,
       sourceTaskKey: '-1001:8',
-      projectKey: 'project-a',
-      title: 'A 又被关注',
-      content: '你关注的13个用户也关注了ta',
-      link: 'https://x.com/project_a',
       mainPushedAt: '2026-05-20T00:00:00.000Z',
-      archivedAt: '2026-05-20T00:01:00.000Z',
-      star: 3,
-      count: 13,
       channelMessage: { chatId: -1001, messageId: 8 },
       discussionAnalysisMessage: { chatId: '-1002', messageId: 18 }
     };
     const store = new AnalysisArchiveStore({ filePath });
 
     await store.upsert(laterRecord);
-    await store.upsert(hitRecord);
+    await store.upsert(earlierHitRecord);
     await store.upsert(earliestRecord);
 
     await expect(store.getFirstAnalysis('project-a')).resolves.toEqual(earliestRecord);
