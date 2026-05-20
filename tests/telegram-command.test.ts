@@ -48,6 +48,42 @@ describe('extractTelegramCommands', () => {
     ]);
   });
 
+  it('parses unsuffixed English aliases without bot username options', () => {
+    expect(
+      extractTelegramCommands([
+        {
+          update_id: 1,
+          message: {
+            message_id: 32,
+            text: '/chatid',
+            chat: { id: -1008, type: 'supergroup' }
+          }
+        },
+        {
+          update_id: 2,
+          message: {
+            message_id: 33,
+            text: '/export_analysis 2026-05-20T09 2026-05-20T18',
+            chat: { id: -1009, type: 'supergroup' }
+          }
+        }
+      ])
+    ).toEqual([
+      {
+        type: 'chat-id',
+        chatId: '-1008',
+        messageId: 32
+      },
+      {
+        type: 'export-analysis',
+        chatId: '-1009',
+        messageId: 33,
+        from: '2026-05-20T09',
+        to: '2026-05-20T18'
+      }
+    ]);
+  });
+
   it('parses English aliases with optional bot suffix', () => {
     expect(
       extractTelegramCommands([
@@ -69,7 +105,8 @@ describe('extractTelegramCommands', () => {
             chat: { id: -1003, type: 'supergroup' }
           }
         }
-      ])
+      ],
+      { botUsername: 'MyBot' })
     ).toEqual([
       {
         type: 'chat-id',
@@ -172,6 +209,64 @@ describe('extractTelegramCommands', () => {
         { update_id: 4, message: { message_id: 4, text: 'hello', chat: { id: -4 } } },
         null
       ])
+    ).toEqual([]);
+  });
+
+  it('ignores lookalike commands and commands addressed to other bots', () => {
+    expect(
+      extractTelegramCommands(
+        [
+          {
+            update_id: 1,
+            message: {
+              message_id: 60,
+              text: '/export_analysis_backup 2026-05-20T09 2026-05-20T18',
+              chat: { id: -1010, type: 'supergroup' }
+            }
+          },
+          {
+            update_id: 2,
+            message: {
+              message_id: 61,
+              text: '/export_analysis2 2026-05-20T09 2026-05-20T18',
+              chat: { id: -1011, type: 'supergroup' }
+            }
+          },
+          {
+            update_id: 3,
+            message: {
+              message_id: 62,
+              text: '/chatid_extra',
+              chat: { id: -1012, type: 'supergroup' }
+            }
+          },
+          {
+            update_id: 4,
+            message: {
+              message_id: 63,
+              text: '导出分析报告 2026-05-20T09 2026-05-20T18',
+              chat: { id: -1013, type: 'supergroup' }
+            }
+          },
+          {
+            update_id: 5,
+            message: {
+              message_id: 64,
+              text: '/export_analysis@OtherBot 2026-05-20T09 2026-05-20T18',
+              chat: { id: -1014, type: 'supergroup' }
+            }
+          },
+          {
+            update_id: 6,
+            message: {
+              message_id: 65,
+              text: '/chatid@OtherBot',
+              chat: { id: -1015, type: 'supergroup' }
+            }
+          }
+        ],
+        { botUsername: 'MyBot' }
+      )
     ).toEqual([]);
   });
 });

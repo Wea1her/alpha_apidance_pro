@@ -20,6 +20,10 @@ export type TelegramCommand =
       username?: string;
     };
 
+export interface TelegramCommandExtractionOptions {
+  botUsername?: string;
+}
+
 interface MessageContext {
   text: string;
   chatId: string;
@@ -28,6 +32,7 @@ interface MessageContext {
 }
 
 const EXPORT_HOUR_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}$/;
+const CHINESE_EXPORT_COMMAND = '导出分析';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -73,23 +78,62 @@ function baseCommand(context: MessageContext) {
   };
 }
 
-function parseCommand(context: MessageContext): TelegramCommand | null {
+function normalizeBotUsername(value: string | undefined): string | null {
+  const normalized = value?.trim().replace(/^@/, '').toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function parseSlashCommandToken(head: string | undefined): { command: string; botUsername?: string } | null {
+  const match = head?.match(/^\/([A-Za-z0-9_]+)(?:@([A-Za-z0-9_]+))?$/);
+  if (!match) {
+    return null;
+  }
+  return { command: match[1], botUsername: match[2] };
+}
+
+function isCommandForThisBot(
+  parsed: { command: string; botUsername?: string } | null,
+  command: string,
+  options: TelegramCommandExtractionOptions
+): boolean {
+  if (!parsed || parsed.command !== command) {
+    return false;
+  }
+  if (!parsed.botUsername) {
+    return true;
+  }
+  const expectedBotUsername = normalizeBotUsername(options.botUsername);
+  return expectedBotUsername !== null && normalizeBotUsername(parsed.botUsername) === expectedBotUsername;
+}
+
+function looksLikeChineseExportCommand(text: string): boolean {
+  if (!text.startsWith(CHINESE_EXPORT_COMMAND)) {
+    return false;
+  }
+  const next = text[CHINESE_EXPORT_COMMAND.length];
+  return next === undefined || /\s|\d/.test(next);
+}
+
+function parseCommand(
+  context: MessageContext,
+  options: TelegramCommandExtractionOptions
+): TelegramCommand | null {
   const text = context.text;
   const parts = text.split(/\s+/).filter(Boolean);
   const head = parts[0];
+  const slashCommand = parseSlashCommandToken(head);
 
-  if (text === '查看聊天ID' || /^\/chatid(?:@[A-Za-z0-9_]+)?$/.test(text)) {
+  if (text === '查看聊天ID' || (parts.length === 1 && isCommandForThisBot(slashCommand, 'chatid', options))) {
     return {
       type: 'chat-id',
       ...baseCommand(context)
     };
   }
 
-  const startsWithChineseExport = text.startsWith('导出分析');
-  const startsWithEnglishExport = text.startsWith('/export_analysis');
-  const isChineseExport = head === '导出分析';
-  const isEnglishExport = /^\/export_analysis(?:@[A-Za-z0-9_]+)?$/.test(head ?? '');
-  if (!startsWithChineseExport && !startsWithEnglishExport) {
+  const isChineseExport = head === CHINESE_EXPORT_COMMAND;
+  const isEnglishExport = isCommandForThisBot(slashCommand, 'export_analysis', options);
+  const isExportLike = looksLikeChineseExportCommand(text) || isEnglishExport;
+  if (!isExportLike) {
     return null;
   }
 
@@ -124,7 +168,10 @@ function updateListFromInput(input: unknown): unknown[] {
   return [];
 }
 
-export function extractTelegramCommands(input: unknown): TelegramCommand[] {
+export function extractTelegramCommands(
+  input: unknown,
+  options: TelegramCommandExtractionOptions = {}
+): TelegramCommand[] {
   const commands: TelegramCommand[] = [];
 
   for (const update of updateListFromInput(input)) {
@@ -134,7 +181,7 @@ export function extractTelegramCommands(input: unknown): TelegramCommand[] {
       const context = contextFromMessage(update[messageKey]);
       if (!context) continue;
 
-      const command = parseCommand(context);
+      const command = parseCommand(context, options);
       if (command) {
         commands.push(command);
       }
