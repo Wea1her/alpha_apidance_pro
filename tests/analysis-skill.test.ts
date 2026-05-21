@@ -33,6 +33,8 @@ describe('loadAnalysisSkill', () => {
     expect(DEFAULT_ANALYSIS_SKILL).toContain('链上关联');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('类似项目结局');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('删帖频率');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('发现 CA/合约相关删帖');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('不能只凭这一点直接判定跑路');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('值得小资金试错/重点跟踪/暂不参与');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('小仓试错');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('重点跟踪');
