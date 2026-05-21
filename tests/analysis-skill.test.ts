@@ -44,6 +44,8 @@ describe('loadAnalysisSkill', () => {
     expect(DEFAULT_ANALYSIS_SKILL).toContain('8. Rug 历史/风险');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('第 8 节明确写“发现 CA/合约相关删帖”');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('`1. 项目核心信息`、`2. 项目背景/背书账号`、`3. 当前进展`、`4. 优点`、`5. 缺点`、`6. 关注理由`、`7. 标签`、`8. Rug 历史/风险`');
+    expect(DEFAULT_ANALYSIS_SKILL).not.toContain('其他账号');
+    expect(DEFAULT_ANALYSIS_SKILL).not.toContain('其他的优先级');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('值得小资金试错/重点跟踪/暂不参与');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('小仓试错');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('重点跟踪');
@@ -56,6 +58,14 @@ describe('loadAnalysisSkill', () => {
 
     const runtimeSkill = await readFile(join(process.cwd(), 'analysis-skills/project-alpha.md'), 'utf8');
     expect(runtimeSkill).toContain('严格按分析维度输出 8 个章节');
+    expect(runtimeSkill).toContain('项目背景/背书账号证据');
+    expect(runtimeSkill).toContain('不得编造未出现在候选池中的账号');
+    expect(runtimeSkill).toContain('项目方、交易所、VC、基金、生态官方');
+    expect(runtimeSkill).toContain('主要是 KOL 关注，不等同于项目方/VC/生态背书');
+    expect(runtimeSkill).toContain('8. Rug 历史/风险');
+    expect(runtimeSkill).toContain('第 8 节明确写“发现 CA/合约相关删帖”');
     expect(runtimeSkill).toContain('`1. 项目核心信息`、`2. 项目背景/背书账号`、`3. 当前进展`、`4. 优点`、`5. 缺点`、`6. 关注理由`、`7. 标签`、`8. Rug 历史/风险`');
+    expect(runtimeSkill).not.toContain('其他账号');
+    expect(runtimeSkill).not.toContain('其他的优先级');
   });
 });
