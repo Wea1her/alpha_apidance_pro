@@ -24,6 +24,17 @@ function count(value: number | null | undefined): number {
   return typeof value === 'number' ? value : 0;
 }
 
+function formatContractDeletedTweetSignal(evidence: RugHistoryEvidence): string[] {
+  if (evidence.contractDeletedTweetSamples.length === 0) {
+    return ['CA/合约相关删帖：未发现'];
+  }
+
+  return [
+    'CA/合约相关删帖：发现',
+    '要求：第 7 节必须明确写“发现 CA/合约相关删帖”，并引用合约相关删帖原文；但不得仅凭这一点直接判定跑路，需结合删帖数量、负面提及、评论区样本和其他证据判断。'
+  ];
+}
+
 function buildRugEvidenceStatus(evidence: RugHistoryEvidence): string {
   if (!evidence.available || evidence.warnings.length > 0) return '未查询或查询失败';
 
@@ -72,6 +83,7 @@ function formatRugHistory(evidence: RugHistoryEvidence | undefined): string[] {
     formatList(evidence.recentRiskSignals),
     '数据警告：',
     formatList(evidence.warnings),
+    ...formatContractDeletedTweetSignal(evidence),
     '合约相关删帖原文：',
     formatList(evidence.contractDeletedTweetSamples)
   ];
