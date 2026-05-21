@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
@@ -19,7 +19,7 @@ describe('loadAnalysisSkill', () => {
     await expect(loadAnalysisSkill({ name: 'missing', directory: dir })).resolves.toBe(DEFAULT_ANALYSIS_SKILL);
   });
 
-  it('keeps the default skill aligned with the asymmetric trading analysis rules', () => {
+  it('keeps the default skill aligned with the asymmetric trading analysis rules', async () => {
     expect(DEFAULT_ANALYSIS_SKILL).toContain('低成本试错');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('高赔率机会');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('小资金试错');
@@ -35,6 +35,15 @@ describe('loadAnalysisSkill', () => {
     expect(DEFAULT_ANALYSIS_SKILL).toContain('删帖频率');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('发现 CA/合约相关删帖');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('不能只凭这一点直接判定跑路');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('项目背景/背书账号');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('项目背景/背书账号证据');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('最多列 10 个账号');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('不得编造未出现在候选池中的账号');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('项目方、交易所、VC、基金、生态官方');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('主要是 KOL 关注，不等同于项目方/VC/生态背书');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('8. Rug 历史/风险');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('第 8 节明确写“发现 CA/合约相关删帖”');
+    expect(DEFAULT_ANALYSIS_SKILL).toContain('`1. 项目核心信息`、`2. 项目背景/背书账号`、`3. 当前进展`、`4. 优点`、`5. 缺点`、`6. 关注理由`、`7. 标签`、`8. Rug 历史/风险`');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('值得小资金试错/重点跟踪/暂不参与');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('小仓试错');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('重点跟踪');
@@ -44,5 +53,9 @@ describe('loadAnalysisSkill', () => {
     expect(DEFAULT_ANALYSIS_SKILL).toContain('不要输出 * 号');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('章节标题单独一行');
     expect(DEFAULT_ANALYSIS_SKILL).toContain('正文必须另起下一行');
+
+    const runtimeSkill = await readFile(join(process.cwd(), 'analysis-skills/project-alpha.md'), 'utf8');
+    expect(runtimeSkill).toContain('严格按分析维度输出 8 个章节');
+    expect(runtimeSkill).toContain('`1. 项目核心信息`、`2. 项目背景/背书账号`、`3. 当前进展`、`4. 优点`、`5. 缺点`、`6. 关注理由`、`7. 标签`、`8. Rug 历史/风险`');
   });
 });
