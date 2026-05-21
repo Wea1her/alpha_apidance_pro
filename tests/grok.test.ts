@@ -222,7 +222,7 @@ describe('buildGrokPrompt', () => {
 
     expect(prompt).toContain('CA/合约相关删帖：发现');
     expect(prompt).toContain(
-      '要求：第 7 节必须明确写“发现 CA/合约相关删帖”，并引用合约相关删帖原文；但不得仅凭这一点直接判定跑路，需结合删帖数量、负面提及、评论区样本和其他证据判断。'
+      '要求：第 8 节必须明确写“发现 CA/合约相关删帖”，并引用合约相关删帖原文；但不得仅凭这一点直接判定跑路，需结合删帖数量、负面提及、评论区样本和其他证据判断。'
     );
     expect(prompt).toContain('合约相关删帖原文：');
     expect(prompt).toContain('CA: 0x1234567890abcdef1234567890abcdef12345678');
@@ -255,7 +255,7 @@ describe('buildGrokPrompt', () => {
     });
 
     expect(prompt).toContain('CA/合约相关删帖：未发现');
-    expect(prompt).not.toContain('第 7 节必须明确写“发现 CA/合约相关删帖”');
+    expect(prompt).not.toContain('第 8 节必须明确写“发现 CA/合约相关删帖”');
   });
 
   it('marks contract-related deleted tweets as a data gap when rug evidence has warnings', () => {
