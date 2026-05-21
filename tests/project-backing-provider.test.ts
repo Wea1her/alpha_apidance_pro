@@ -146,6 +146,10 @@ describe('project backing provider', () => {
           screen_name: 'ethereum',
           description: 'Ethereum Foundation',
           followers_count_str: '3000000'
+        },
+        {
+          twUserName: 'coinbase',
+          name: 'Coinbase'
         }
       ]
     }));
@@ -157,7 +161,7 @@ describe('project backing provider', () => {
       client: { postOpen }
     });
 
-    expect(evidence.candidateCount).toBe(2);
+    expect(evidence.candidateCount).toBe(3);
     expect(evidence.candidates).toEqual([
       {
         username: 'binance',
@@ -170,6 +174,10 @@ describe('project backing provider', () => {
         username: 'ethereum',
         description: 'Ethereum Foundation',
         followersCount: 3000000
+      },
+      {
+        username: 'coinbase',
+        displayName: 'Coinbase'
       }
     ]);
   });
