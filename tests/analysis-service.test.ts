@@ -18,6 +18,7 @@ describe('triggerAnalysisComment', () => {
     const reply = vi.fn().mockResolvedValue({ messageId: 556, chatId: -1003769834276 });
     const analyze = vi.fn();
     const getRugHistory = vi.fn();
+    const getProjectBacking = vi.fn();
 
     const result = await triggerAnalysisComment({
       xaiApiKey: 'key',
@@ -38,11 +39,13 @@ describe('triggerAnalysisComment', () => {
       existingAnalysis: existing,
       analyze,
       getRugHistory,
+      getProjectBacking,
       reply
     });
 
     expect(analyze).not.toHaveBeenCalled();
     expect(getRugHistory).not.toHaveBeenCalled();
+    expect(getProjectBacking).not.toHaveBeenCalled();
     expect(result).toEqual({
       type: 'reminder',
       message: { messageId: 556, chatId: -1003769834276 },
@@ -88,6 +91,30 @@ describe('triggerAnalysisComment', () => {
       recentRiskSignals: ['recent mint'],
       warnings: []
     });
+    const getProjectBacking = vi.fn().mockResolvedValue({
+      source: '6551',
+      available: true,
+      candidateCount: 2,
+      candidates: [
+        {
+          username: 'aave',
+          displayName: 'Aave',
+          description: 'Aave Protocol official account',
+          followersCount: 730000,
+          verified: true,
+          rawCategory: 'project'
+        },
+        {
+          username: 'paradigm',
+          displayName: 'Paradigm',
+          description: 'A research-driven crypto investment firm',
+          followersCount: 410000,
+          verified: true,
+          rawCategory: 'vc'
+        }
+      ],
+      warnings: []
+    });
 
     await expect(
       triggerAnalysisComment({
@@ -109,6 +136,7 @@ describe('triggerAnalysisComment', () => {
         twitterToken: 'twitter-token',
         twitterApiBaseUrl: 'https://ai.6551.io',
         getRugHistory,
+        getProjectBacking,
         loadSkill,
         analyze,
         reply
@@ -125,7 +153,16 @@ describe('triggerAnalysisComment', () => {
       twitterApiBaseUrl: 'https://ai.6551.io',
       proxyUrl: 'http://127.0.0.1:7890'
     });
+    expect(getProjectBacking).toHaveBeenCalledWith({
+      link: 'https://x.com/b',
+      twitterToken: 'twitter-token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      proxyUrl: 'http://127.0.0.1:7890'
+    });
     expect(loadSkill).toHaveBeenCalledOnce();
+    expect(analyze.mock.calls[0][0]).toContain('项目背景/背书账号证据');
+    expect(analyze.mock.calls[0][0]).toContain('@aave');
+    expect(analyze.mock.calls[0][0]).toContain('@paradigm');
     expect(analyze.mock.calls[0][0]).toContain('Rug 数据可用');
     expect(analyze.mock.calls[0][0]).toContain('deleted mint');
     expect(analyze.mock.calls[0][0]).toContain('# 测试 Skill');
@@ -168,6 +205,13 @@ describe('triggerAnalysisComment', () => {
       recentRiskSignals: [],
       warnings: []
     });
+    const getProjectBacking = vi.fn().mockResolvedValue({
+      source: '6551',
+      available: true,
+      candidateCount: 0,
+      candidates: [],
+      warnings: []
+    });
 
     const result = await triggerAnalysisComment({
       xaiApiKey: 'key',
@@ -188,6 +232,7 @@ describe('triggerAnalysisComment', () => {
       twitterToken: 'twitter-token',
       twitterApiBaseUrl: 'https://ai.6551.io',
       getRugHistory,
+      getProjectBacking,
       analyze,
       reply
     });

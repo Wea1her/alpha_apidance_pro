@@ -1,6 +1,10 @@
 import type { DiscussionMappingStore } from './discussion-store.js';
 import { buildGrokPrompt } from './grok.js';
 import { loadAnalysisSkill } from './analysis-skill.js';
+import {
+  collectProjectBackingEvidence,
+  type ProjectBackingEvidence
+} from './project-backing-provider.js';
 import { collectRugHistoryEvidence, type RugHistoryEvidence } from './rug-history-provider.js';
 import { replyInTelegramThread, type TelegramSendResult } from './telegram.js';
 import { requestGrokAnalysis } from './xai-client.js';
@@ -38,6 +42,12 @@ export interface TriggerAnalysisOptions {
     twitterApiBaseUrl: string;
     proxyUrl?: string;
   }) => Promise<RugHistoryEvidence>;
+  getProjectBacking?: (options: {
+    link: string;
+    twitterToken?: string;
+    twitterApiBaseUrl: string;
+    proxyUrl?: string;
+  }) => Promise<ProjectBackingEvidence>;
   analyze?: (prompt: string) => Promise<string>;
   loadSkill?: () => Promise<string>;
   reply?: (options: {
@@ -126,13 +136,22 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
     return;
   }
 
-  const rugHistory = await (options.getRugHistory ?? collectRugHistoryEvidence)({
-    link: options.link,
-    twitterToken: options.twitterToken,
-    twitterApiBaseUrl: options.twitterApiBaseUrl ?? 'https://ai.6551.io',
-    proxyUrl: options.proxyUrl
-  });
-  const analysisSkill = await (options.loadSkill ?? loadAnalysisSkill)();
+  const twitterApiBaseUrl = options.twitterApiBaseUrl ?? 'https://ai.6551.io';
+  const [rugHistory, projectBacking, analysisSkill] = await Promise.all([
+    (options.getRugHistory ?? collectRugHistoryEvidence)({
+      link: options.link,
+      twitterToken: options.twitterToken,
+      twitterApiBaseUrl,
+      proxyUrl: options.proxyUrl
+    }),
+    (options.getProjectBacking ?? collectProjectBackingEvidence)({
+      link: options.link,
+      twitterToken: options.twitterToken,
+      twitterApiBaseUrl,
+      proxyUrl: options.proxyUrl
+    }),
+    (options.loadSkill ?? loadAnalysisSkill)()
+  ]);
 
   const prompt = buildGrokPrompt({
     title: options.title,
@@ -140,6 +159,7 @@ export async function triggerAnalysisComment(options: TriggerAnalysisOptions): P
     link: options.link,
     count: options.count,
     star: options.star,
+    projectBacking,
     rugHistory,
     analysisSkill
   });
