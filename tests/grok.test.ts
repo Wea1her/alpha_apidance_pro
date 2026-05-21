@@ -141,6 +141,36 @@ describe('buildGrokPrompt', () => {
     expect(prompt).not.toContain('第 7 节必须明确写“发现 CA/合约相关删帖”');
   });
 
+  it('marks contract-related deleted tweets as a data gap when rug evidence has warnings', () => {
+    const prompt = buildGrokPrompt({
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      rugHistory: {
+        source: '6551',
+        available: true,
+        deletedTweetCount: 0,
+        negativeMentionCount: 0,
+        recentTweetCount: 0,
+        commentNegativeCount: 0,
+        checkedTweetCount: 0,
+        negativeNoiseCount: 0,
+        deletedTweetSamples: [],
+        contractDeletedTweetSamples: [],
+        negativeMentionSamples: [],
+        commentNegativeSamples: [],
+        negativeNoiseSamples: [],
+        recentRiskSignals: [],
+        warnings: ['twitter_deleted_tweets 查询失败']
+      }
+    });
+
+    expect(prompt).toContain('CA/合约相关删帖：未查询或查询失败');
+    expect(prompt).not.toContain('CA/合约相关删帖：未发现');
+  });
+
   it('marks successful empty rug lookup as no direct evidence', () => {
     const prompt = buildGrokPrompt({
       title: 'A 关注了 B',
