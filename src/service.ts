@@ -720,6 +720,8 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   let stopped = false;
   let socket: WebSocket | undefined;
   let heartbeatTimer: NodeJS.Timeout | undefined;
+  let businessSilenceTimer: NodeJS.Timeout | undefined;
+  let lastBusinessMessageAt = 0;
   let reconnectTimer: NodeJS.Timeout | undefined;
   let attempt = 0;
 
@@ -736,6 +738,28 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     }, options.config.heartbeatTimeoutMs);
   };
 
+  const clearBusinessSilenceTimer = (): void => {
+    if (businessSilenceTimer) clearTimeout(businessSilenceTimer);
+    businessSilenceTimer = undefined;
+  };
+
+  const scheduleBusinessSilenceTimeout = (): void => {
+    clearBusinessSilenceTimer();
+    const elapsedMs = Date.now() - lastBusinessMessageAt;
+    const remainingMs = Math.max(1, options.config.businessSilenceTimeoutMs - elapsedMs);
+    businessSilenceTimer = setTimeout(() => {
+      const silenceMs = Date.now() - lastBusinessMessageAt;
+      if (silenceMs < options.config.businessSilenceTimeoutMs) {
+        scheduleBusinessSilenceTimeout();
+        return;
+      }
+      warn(`alpha 业务消息静默 ${Math.round(silenceMs / 1000)} 秒，主动重连`);
+      if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+    }, remainingMs);
+  };
+
   const connect = async (): Promise<void> => {
     if (stopped) return;
     try {
@@ -745,8 +769,10 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       socket = factory(buildAlphaWsUrl(options.config.alphaWsBaseUrl, token));
       socket.on('open', () => {
         attempt = 0;
+        lastBusinessMessageAt = Date.now();
         info('alpha websocket 已连接');
         scheduleHeartbeatTimeout();
+        scheduleBusinessSilenceTimeout();
       });
       socket.on('message', (data) => {
         const receivedAt = new Date();
@@ -809,6 +835,8 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
         try {
           const message = parseAlphaMessage(raw);
           if (!isAlphaHeartbeat(message)) {
+            lastBusinessMessageAt = Date.now();
+            scheduleBusinessSilenceTimeout();
             info(formatReceiveLatencyMessage(message, receivedAt));
           }
         } catch {
@@ -820,6 +848,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       });
       socket.on('close', () => {
         clearHeartbeatTimer();
+        clearBusinessSilenceTimer();
         if (stopped) return;
         const delay = reconnectDelay(
           attempt,
@@ -854,6 +883,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     stopFailedRetryWorker();
     stopAnalysisRetryWorker();
     clearHeartbeatTimer();
+    clearBusinessSilenceTimer();
     if (reconnectTimer) clearTimeout(reconnectTimer);
     socket?.close();
   };

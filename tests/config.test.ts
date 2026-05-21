@@ -28,6 +28,8 @@ describe('parseServiceConfig', () => {
       xaiRetryMaxDelayMs: 20000,
       xaiMaxTokens: 2048,
       telegramRetryAttempts: 5,
+      heartbeatTimeoutMs: 90000,
+      businessSilenceTimeoutMs: 180000,
       telegramRetryMinDelayMs: 1000,
       telegramRetryMaxDelayMs: 30000,
       failedQueuePath: 'data/failed-messages.jsonl',
@@ -57,6 +59,23 @@ describe('parseServiceConfig', () => {
       telegramRetryAttempts: 8,
       telegramRetryMinDelayMs: 500,
       telegramRetryMaxDelayMs: 10000
+    });
+  });
+
+  it('parses alpha websocket watchdog config', () => {
+    expect(
+      parseServiceConfig({
+        ...baseEnv,
+        ALPHA_HEARTBEAT_TIMEOUT_MS: '45000',
+        ALPHA_BUSINESS_SILENCE_TIMEOUT_MS: '180000',
+        ALPHA_RECONNECT_MIN_DELAY_MS: '500',
+        ALPHA_RECONNECT_MAX_DELAY_MS: '15000'
+      })
+    ).toMatchObject({
+      heartbeatTimeoutMs: 45000,
+      businessSilenceTimeoutMs: 180000,
+      reconnectMinDelayMs: 500,
+      reconnectMaxDelayMs: 15000
     });
   });
 
