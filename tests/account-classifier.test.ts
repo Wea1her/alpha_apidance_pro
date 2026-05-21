@@ -26,6 +26,17 @@ describe('account classifier', () => {
     expect(prompt).toContain('Meme Degen');
     expect(prompt).toContain('memer');
     expect(prompt).toContain('speculator');
+    expect(prompt).toContain('alpha caller');
+    expect(prompt).toContain('alpha calls');
+    expect(prompt).toContain('signals');
+    expect(prompt).toContain('gem hunter');
+    expect(prompt).toContain('100x');
+    expect(prompt).toContain('喊单');
+    expect(prompt).toContain('带单');
+    expect(prompt).toContain('归为 KOL');
+    expect(prompt).toContain('Alpha 工具');
+    expect(prompt).toContain('数据平台');
+    expect(prompt).toContain('不应因为出现 alpha 一词就归为 KOL');
     expect(prompt).toContain('meme 项目官方账号');
     expect(prompt).toContain('https://x.com/project_b');
   });
@@ -105,6 +116,14 @@ describe('account classifier', () => {
     expect(shouldAllowClassifiedAccount({ type: 'PERSONAL', confidence: 0.9, reason: 'x' })).toBe(false);
     expect(shouldAllowClassifiedAccount({ type: 'MEDIA', confidence: 0.9, reason: 'x' })).toBe(false);
     expect(shouldAllowClassifiedAccount({ type: 'DEV', confidence: 0.9, reason: 'x' })).toBe(false);
+  });
+
+  it('continues to block alpha caller accounts once classified as KOL', () => {
+    expect(shouldAllowClassifiedAccount({
+      type: 'KOL',
+      confidence: 0.92,
+      reason: '个人 alpha caller / signals 喊单账号'
+    })).toBe(false);
   });
 
   it('classifies an account by calling the injected analyzer', async () => {
