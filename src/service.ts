@@ -333,6 +333,11 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
         }
         await options.persistProjectState?.();
         options.dedupe.add(dedupeKey);
+        info(
+          `主推送成功：dedupeKey=${dedupeKey} chatId=${sendResult?.chatId ?? 'unknown'} messageId=${
+            sendResult?.messageId ?? 'unknown'
+          }`
+        );
       } catch (error) {
         let queuedFailedPush = false;
         if (options.projectStars && !isMaxStar) {
@@ -361,7 +366,11 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       }
 
       if (options.afterSend) {
-        await options.afterSend(message, count, decision.star, sendResult, mainPushedAt);
+        try {
+          await options.afterSend(message, count, decision.star, sendResult, mainPushedAt);
+        } catch (error) {
+          warn(`主推送已成功，但后置分析处理失败：${formatErrorMessage(error)}`);
+        }
       }
     });
   } finally {

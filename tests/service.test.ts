@@ -240,6 +240,36 @@ describe('processAlphaMessage', () => {
     expect(afterSend).toHaveBeenCalledTimes(1);
   });
 
+  it('does not fail alpha message processing when post-send analysis handling fails', async () => {
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+    const afterSend = vi.fn().mockRejectedValue(new Error('analysis enqueue failed'));
+    const warn = vi.fn();
+    const dedupe = new Set<string>();
+
+    await expect(
+      processAlphaMessage({
+        raw: JSON.stringify({
+          channel: 'follow',
+          title: 'A 关注了 B',
+          content: '用户简介: DeFi protocol\n你关注的8个用户也关注了ta',
+          link: 'https://x.com/b',
+          push_at: 1778660297
+        }),
+        receivedAt: new Date(1778660298123),
+        commonFollowStarLevels: [5, 8, 12, 15, 20],
+        dedupe,
+        send,
+        afterSend,
+        warn
+      })
+    ).resolves.toBeUndefined();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(afterSend).toHaveBeenCalledTimes(1);
+    expect(dedupe.has('follow|https://x.com/b|A 关注了 B|1778660297')).toBe(true);
+    expect(warn).toHaveBeenCalledWith('主推送已成功，但后置分析处理失败：analysis enqueue failed');
+  });
+
   it('queues main telegram push failures without marking the event as delivered', async () => {
     const send = vi.fn().mockRejectedValue(new Error('fetch failed'));
     const enqueueFailedMainPush = vi.fn().mockResolvedValue(undefined);
