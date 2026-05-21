@@ -87,7 +87,7 @@ describe('buildGrokPrompt', () => {
       projectBacking: {
         source: '6551',
         available: true,
-        candidateCount: 2,
+        candidateCount: 3,
         candidates: [
           {
             username: 'aave',
@@ -104,6 +104,13 @@ describe('buildGrokPrompt', () => {
             followersCount: 410000,
             rawCategory: 'vc',
             description: 'A research-driven crypto investment firm'
+          },
+          {
+            username: 'base',
+            displayName: 'Base',
+            description: 'Ethereum L2',
+            verified: undefined,
+            followersCount: undefined
           }
         ],
         warnings: []
@@ -129,7 +136,7 @@ describe('buildGrokPrompt', () => {
 
     expect(prompt).toContain('项目背景/背书账号证据：');
     expect(prompt).toContain('6551 背书账号状态：查询成功');
-    expect(prompt).toContain('候选账号数量：2');
+    expect(prompt).toContain('候选账号数量：3');
     expect(prompt).toContain('只能从以下候选账号中选最多 10 个');
     expect(prompt).toContain('项目方/协议官方/产品官方、交易所官方、VC/基金、生态官方/公链/Foundation/Labs');
     expect(prompt).toContain(
@@ -138,6 +145,7 @@ describe('buildGrokPrompt', () => {
     expect(prompt).toContain(
       '@paradigm | Paradigm | verified=true | followers=410000 | category=vc | bio=A research-driven crypto investment firm'
     );
+    expect(prompt).toContain('@base | Base | verified=未知 | followers=未知 | category=未知 | bio=Ethereum L2');
     expect(prompt.indexOf('项目背景/背书账号证据：')).toBeLessThan(prompt.indexOf('Rug 证据状态：'));
     expect(prompt).not.toContain('source');
     expect(prompt).not.toContain('数据源');

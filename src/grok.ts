@@ -43,7 +43,7 @@ function formatProjectBackingCandidate(candidate: ProjectBackingCandidate): stri
     typeof candidate.followersCount === 'number' && Number.isFinite(candidate.followersCount)
       ? String(candidate.followersCount)
       : '未知';
-  const category = formatOptionalText(candidate.rawCategory);
+  const category = candidate.rawCategory?.replace(/\s+/g, ' ').trim() || '未知';
   const bio = formatOptionalText(candidate.description);
 
   return `@${username} | ${displayName} | verified=${verified} | followers=${followers} | category=${category} | bio=${bio}`;
