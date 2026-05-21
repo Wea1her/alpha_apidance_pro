@@ -37,6 +37,19 @@ describe('account classifier', () => {
     expect(prompt).toContain('Alpha 工具');
     expect(prompt).toContain('数据平台');
     expect(prompt).toContain('不应因为出现 alpha 一词就归为 KOL');
+    expect(prompt).toContain('founder');
+    expect(prompt).toContain('co-founder');
+    expect(prompt).toContain('core team');
+    expect(prompt).toContain('team member');
+    expect(prompt).toContain('core contributor');
+    expect(prompt).toContain('community lead');
+    expect(prompt).toContain('核心成员');
+    expect(prompt).toContain('归为 PERSONAL');
+    expect(prompt).toContain('core developer');
+    expect(prompt).toContain('technical contributor');
+    expect(prompt).toContain('技术贡献者');
+    expect(prompt).toContain('归为 DEV');
+    expect(prompt).toContain('不应仅凭这些词归为 PERSONAL 或 DEV');
     expect(prompt).toContain('meme 项目官方账号');
     expect(prompt).toContain('https://x.com/project_b');
   });
@@ -123,6 +136,22 @@ describe('account classifier', () => {
       type: 'KOL',
       confidence: 0.92,
       reason: '个人 alpha caller / signals 喊单账号'
+    })).toBe(false);
+  });
+
+  it('continues to block team core member accounts once classified as PERSONAL', () => {
+    expect(shouldAllowClassifiedAccount({
+      type: 'PERSONAL',
+      confidence: 0.91,
+      reason: '项目 founder / core team 成员个人账号'
+    })).toBe(false);
+  });
+
+  it('continues to block core technical contributor accounts once classified as DEV', () => {
+    expect(shouldAllowClassifiedAccount({
+      type: 'DEV',
+      confidence: 0.9,
+      reason: 'core developer / technical contributor 个人账号'
     })).toBe(false);
   });
 
