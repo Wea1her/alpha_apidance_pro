@@ -108,14 +108,26 @@ function candidateFromItem(item: unknown): ProjectBackingCandidate | null {
 
   const record = item as Record<string, unknown>;
   const username = normalizeUsername(
-    record.username ?? record.screenName ?? record.userName ?? record.handle
+    record.username ??
+      record.screenName ??
+      record.screen_name ??
+      record.userName ??
+      record.twUserName ??
+      record.twAccount ??
+      record.handle
   );
   if (!username) return null;
 
   const candidate: ProjectBackingCandidate = { username };
   const displayName = stringField(record, ['displayName', 'name']);
   const description = stringField(record, ['description', 'bio']);
-  const followersCount = numberField(record, ['followersCount', 'followers_count', 'followers']);
+  const followersCount = numberField(record, [
+    'followersCount',
+    'followerCount',
+    'followers_count',
+    'followers_count_str',
+    'followers'
+  ]);
   const verified = booleanField(record, ['verified', 'isBlueVerified', 'blueVerified']);
   const rawCategory = stringField(record, ['rawCategory', 'category', 'type']);
 
@@ -140,15 +152,15 @@ export async function collectProjectBackingEvidence(
     return emptyEvidence(['无法从 X 链接提取 username，跳过 6551 项目背书查询']);
   }
 
-  const client = options.client ?? createTwitter6551Client({
-    token: options.twitterToken,
-    baseUrl: options.twitterApiBaseUrl,
-    proxyUrl: options.proxyUrl
-  });
-
   try {
+    const client = options.client ?? createTwitter6551Client({
+      token: options.twitterToken,
+      baseUrl: options.twitterApiBaseUrl,
+      proxyUrl: options.proxyUrl
+    });
     const response = await client.postOpen('twitter_kol_followers', { username });
-    const candidates = responseItems(response)
+    const rawItems = responseItems(response);
+    const candidates = rawItems
       .map(candidateFromItem)
       .filter((candidate): candidate is ProjectBackingCandidate => candidate !== null);
 
@@ -157,7 +169,7 @@ export async function collectProjectBackingEvidence(
       available: true,
       candidateCount: candidates.length,
       candidates: candidates.slice(0, PROJECT_BACKING_CANDIDATE_LIMIT),
-      warnings: []
+      warnings: rawItems.length > 0 && candidates.length === 0 ? ['6551 项目背书候选无法解析 username'] : []
     };
   } catch (error) {
     return emptyEvidence([

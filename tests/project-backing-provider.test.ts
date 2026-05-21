@@ -132,6 +132,48 @@ describe('project backing provider', () => {
     ]);
   });
 
+  it('normalizes additional 6551 username and follower fields', async () => {
+    const postOpen = vi.fn(async () => ({
+      data: [
+        {
+          twAccount: '@binance',
+          name: 'Binance',
+          bio: 'Exchange official',
+          followerCount: '12000000',
+          blueVerified: true
+        },
+        {
+          screen_name: 'ethereum',
+          description: 'Ethereum Foundation',
+          followers_count_str: '3000000'
+        }
+      ]
+    }));
+
+    const evidence = await collectProjectBackingEvidence({
+      link: 'https://x.com/project_b',
+      twitterToken: 'token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      client: { postOpen }
+    });
+
+    expect(evidence.candidateCount).toBe(2);
+    expect(evidence.candidates).toEqual([
+      {
+        username: 'binance',
+        displayName: 'Binance',
+        description: 'Exchange official',
+        followersCount: 12000000,
+        verified: true
+      },
+      {
+        username: 'ethereum',
+        description: 'Ethereum Foundation',
+        followersCount: 3000000
+      }
+    ]);
+  });
+
   it('limits candidates to the configured prompt candidate limit', async () => {
     const postOpen = vi.fn(async () => ({
       data: Array.from({ length: PROJECT_BACKING_CANDIDATE_LIMIT + 5 }, (_, index) => ({
@@ -153,6 +195,30 @@ describe('project backing provider', () => {
     expect(evidence.candidates.at(-1)?.username).toBe(`kol_${PROJECT_BACKING_CANDIDATE_LIMIT}`);
   });
 
+  it('warns when raw candidates exist but usernames cannot be parsed', async () => {
+    const postOpen = vi.fn(async () => ({
+      data: [
+        { displayName: 'Missing Handle', bio: 'cannot be used' },
+        { username: 'invalid-handle', name: 'Invalid Handle' }
+      ]
+    }));
+
+    const evidence = await collectProjectBackingEvidence({
+      link: 'https://x.com/project_b',
+      twitterToken: 'token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      client: { postOpen }
+    });
+
+    expect(evidence).toEqual({
+      source: '6551',
+      available: true,
+      candidateCount: 0,
+      candidates: [],
+      warnings: ['6551 项目背书候选无法解析 username']
+    });
+  });
+
   it('returns warning evidence when 6551 lookup fails', async () => {
     const postOpen = vi.fn(async () => {
       throw new Error('rate limited');
@@ -169,5 +235,23 @@ describe('project backing provider', () => {
     expect(evidence.candidateCount).toBeNull();
     expect(evidence.candidates).toEqual([]);
     expect(evidence.warnings).toEqual(['twitter_kol_followers 查询失败：rate limited']);
+  });
+
+  it('returns warning evidence when default client construction fails', async () => {
+    const evidencePromise = collectProjectBackingEvidence({
+      link: 'https://x.com/project_b',
+      twitterToken: 'token',
+      twitterApiBaseUrl: 'https://ai.6551.io',
+      proxyUrl: 'http://%'
+    });
+
+    await expect(evidencePromise).resolves.toMatchObject({
+      source: '6551',
+      available: false,
+      candidateCount: null,
+      candidates: []
+    });
+    const evidence = await evidencePromise;
+    expect(evidence.warnings).toEqual([expect.stringContaining('twitter_kol_followers 查询失败')]);
   });
 });
