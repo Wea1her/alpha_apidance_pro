@@ -1,4 +1,5 @@
 import type { RugHistoryEvidence } from './rug-history-provider.js';
+import type { ProjectBackingCandidate, ProjectBackingEvidence } from './project-backing-provider.js';
 import { DEFAULT_ANALYSIS_SKILL } from './analysis-skill.js';
 
 export interface GrokAnalysisInput {
@@ -7,6 +8,7 @@ export interface GrokAnalysisInput {
   link: string;
   count: number;
   star: number;
+  projectBacking?: ProjectBackingEvidence;
   rugHistory?: RugHistoryEvidence;
   analysisSkill?: string;
 }
@@ -22,6 +24,61 @@ function formatList(items: string[] | undefined): string {
 
 function count(value: number | null | undefined): number {
   return typeof value === 'number' ? value : 0;
+}
+
+const PROJECT_BACKING_BIO_MAX_LENGTH = 180;
+
+function formatOptionalText(value: string | undefined): string {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '暂无';
+  if (normalized.length <= PROJECT_BACKING_BIO_MAX_LENGTH) return normalized;
+  return `${normalized.slice(0, PROJECT_BACKING_BIO_MAX_LENGTH - 3)}...`;
+}
+
+function formatProjectBackingCandidate(candidate: ProjectBackingCandidate): string {
+  const username = candidate.username.replace(/^@+/, '');
+  const displayName = formatOptionalText(candidate.displayName);
+  const verified = typeof candidate.verified === 'boolean' ? String(candidate.verified) : '未知';
+  const followers =
+    typeof candidate.followersCount === 'number' && Number.isFinite(candidate.followersCount)
+      ? String(candidate.followersCount)
+      : '未知';
+  const category = formatOptionalText(candidate.rawCategory);
+  const bio = formatOptionalText(candidate.description);
+
+  return `@${username} | ${displayName} | verified=${verified} | followers=${followers} | category=${category} | bio=${bio}`;
+}
+
+function formatProjectBacking(evidence: ProjectBackingEvidence | undefined): string[] {
+  if (!evidence) return ['项目背景/背书账号证据：未查询'];
+
+  if (!evidence.available || evidence.warnings.length > 0) {
+    return [
+      '项目背景/背书账号证据：',
+      '6551 背书账号状态：未查询或查询失败',
+      '要求：第 2 节必须说明当前无法确认知名 Crypto 背书账号，不能把数据缺口写成确认无背书。',
+      '数据警告：',
+      formatList(evidence.warnings)
+    ];
+  }
+
+  if (evidence.candidates.length === 0) {
+    return [
+      '项目背景/背书账号证据：',
+      '6551 背书账号状态：查询成功但未发现',
+      `候选账号数量：${evidence.candidateCount ?? 0}`,
+      '要求：第 2 节必须说明未查询到知名 Crypto 背书账号，不能暗示存在未列出的背书账号。'
+    ];
+  }
+
+  return [
+    '项目背景/背书账号证据：',
+    '6551 背书账号状态：查询成功',
+    `候选账号数量：${evidence.candidateCount ?? evidence.candidates.length}`,
+    '筛选要求：只能从以下候选账号中选最多 10 个，优先项目方/协议官方/产品官方、交易所官方、VC/基金、生态官方/公链/Foundation/Labs；不要编造候选列表之外的背书账号。',
+    '候选账号列表：',
+    ...evidence.candidates.map((candidate) => `  - ${formatProjectBackingCandidate(candidate)}`)
+  ];
 }
 
 function formatContractDeletedTweetSignal(evidence: RugHistoryEvidence): string[] {
@@ -103,6 +160,8 @@ export function buildGrokPrompt(input: GrokAnalysisInput): string {
     `- 监控池关注数：${input.count}`,
     `- 重要程度：${input.star} 星`,
     `- 原始内容：${input.content}`,
+    '',
+    ...formatProjectBacking(input.projectBacking),
     '',
     ...formatRugHistory(input.rugHistory),
     '',

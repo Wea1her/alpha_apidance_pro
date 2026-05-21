@@ -77,6 +77,115 @@ describe('buildGrokPrompt', () => {
     expect(prompt).not.toContain('数据源');
   });
 
+  it('includes project backing evidence before rug history when provided', () => {
+    const prompt = buildGrokPrompt({
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      projectBacking: {
+        source: '6551',
+        available: true,
+        candidateCount: 2,
+        candidates: [
+          {
+            username: 'aave',
+            displayName: 'Aave',
+            verified: true,
+            followersCount: 730000,
+            rawCategory: 'project',
+            description: 'Aave Protocol official account'
+          },
+          {
+            username: 'paradigm',
+            displayName: 'Paradigm',
+            verified: true,
+            followersCount: 410000,
+            rawCategory: 'vc',
+            description: 'A research-driven crypto investment firm'
+          }
+        ],
+        warnings: []
+      },
+      rugHistory: {
+        source: '6551',
+        available: true,
+        deletedTweetCount: 0,
+        negativeMentionCount: 0,
+        recentTweetCount: 5,
+        commentNegativeCount: 0,
+        checkedTweetCount: 3,
+        negativeNoiseCount: 0,
+        deletedTweetSamples: [],
+        contractDeletedTweetSamples: [],
+        negativeMentionSamples: [],
+        commentNegativeSamples: [],
+        negativeNoiseSamples: [],
+        recentRiskSignals: [],
+        warnings: []
+      }
+    });
+
+    expect(prompt).toContain('项目背景/背书账号证据：');
+    expect(prompt).toContain('6551 背书账号状态：查询成功');
+    expect(prompt).toContain('候选账号数量：2');
+    expect(prompt).toContain('只能从以下候选账号中选最多 10 个');
+    expect(prompt).toContain('项目方/协议官方/产品官方、交易所官方、VC/基金、生态官方/公链/Foundation/Labs');
+    expect(prompt).toContain(
+      '@aave | Aave | verified=true | followers=730000 | category=project | bio=Aave Protocol official account'
+    );
+    expect(prompt).toContain(
+      '@paradigm | Paradigm | verified=true | followers=410000 | category=vc | bio=A research-driven crypto investment firm'
+    );
+    expect(prompt.indexOf('项目背景/背书账号证据：')).toBeLessThan(prompt.indexOf('Rug 证据状态：'));
+    expect(prompt).not.toContain('source');
+    expect(prompt).not.toContain('数据源');
+  });
+
+  it('marks empty project backing lookup as successful without known crypto backing accounts', () => {
+    const prompt = buildGrokPrompt({
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      projectBacking: {
+        source: '6551',
+        available: true,
+        candidateCount: 0,
+        candidates: [],
+        warnings: []
+      }
+    });
+
+    expect(prompt).toContain('6551 背书账号状态：查询成功但未发现');
+    expect(prompt).toContain('第 2 节必须说明未查询到知名 Crypto 背书账号');
+    expect(prompt).not.toContain('@aave |');
+    expect(prompt).not.toContain('@paradigm |');
+  });
+
+  it('marks unavailable project backing lookup as a data gap with warnings', () => {
+    const prompt = buildGrokPrompt({
+      title: 'A 关注了 B',
+      content: '用户简介: builder',
+      link: 'https://x.com/b',
+      count: 12,
+      star: 3,
+      projectBacking: {
+        source: '6551',
+        available: false,
+        candidateCount: null,
+        candidates: [],
+        warnings: ['未配置 TWITTER_TOKEN，跳过 6551 项目背书查询']
+      }
+    });
+
+    expect(prompt).toContain('6551 背书账号状态：未查询或查询失败');
+    expect(prompt).toContain('第 2 节必须说明当前无法确认知名 Crypto 背书账号');
+    expect(prompt).toContain('未配置 TWITTER_TOKEN，跳过 6551 项目背书查询');
+  });
+
   it('marks contract-related deleted tweets as an explicit CA risk signal', () => {
     const prompt = buildGrokPrompt({
       title: 'A 关注了 B',
