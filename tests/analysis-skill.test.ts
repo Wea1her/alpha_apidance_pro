@@ -57,6 +57,7 @@ describe('loadAnalysisSkill', () => {
     expect(DEFAULT_ANALYSIS_SKILL).toContain('正文必须另起下一行');
 
     const runtimeSkill = await readFile(join(process.cwd(), 'analysis-skills/project-alpha.md'), 'utf8');
+    expect(runtimeSkill.trim()).toBe(DEFAULT_ANALYSIS_SKILL);
     expect(runtimeSkill).toContain('严格按分析维度输出 8 个章节');
     expect(runtimeSkill).toContain('项目背景/背书账号证据');
     expect(runtimeSkill).toContain('不得编造未出现在候选池中的账号');
