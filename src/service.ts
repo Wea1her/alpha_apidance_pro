@@ -10,6 +10,10 @@ import {
   parseAlphaMessage
 } from './alpha-client.js';
 import {
+  createUnavailableAlphaReplayProvider,
+  type AlphaReplayProvider
+} from './alpha-replay-provider.js';
+import {
   calculateReceiveLatencyMs,
   extractCommonFollowCount,
   formatReceiveLatencyMessage
@@ -95,8 +99,22 @@ export interface ProcessAlphaMessageOptions {
 export interface StartAlphaServiceOptions {
   config: ServiceConfig;
   webSocketFactory?: (url: string) => WebSocket;
+  alphaReplayProvider?: AlphaReplayProvider;
   info?: (message: string) => void;
   warn?: (message: string) => void;
+}
+
+export interface ReplayAlphaEventsOptions {
+  provider: AlphaReplayProvider;
+  since: Date;
+  onEvent: (raw: string, receivedAt: Date) => Promise<void>;
+  unavailableLogged?: { value: boolean };
+  info?: (message: string) => void;
+  warn?: (message: string) => void;
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function messageString(message: Record<string, unknown>, field: string): string {
@@ -355,6 +373,41 @@ function reconnectDelay(attempt: number, minMs: number, maxMs: number): number {
   return Math.min(maxMs, minMs * 2 ** Math.min(attempt, 8));
 }
 
+export async function replayAlphaEvents(options: ReplayAlphaEventsOptions): Promise<void> {
+  const info = options.info ?? console.info;
+  const warn = options.warn ?? console.warn;
+
+  if (!options.provider.available) {
+    if (!options.unavailableLogged || !options.unavailableLogged.value) {
+      warn(`Alpha 历史回放不可用：${options.provider.reason ?? '未配置历史回放 provider'}`);
+      if (options.unavailableLogged) {
+        options.unavailableLogged.value = true;
+      }
+    }
+    return;
+  }
+
+  let events;
+  try {
+    events = await options.provider.replaySince(options.since);
+  } catch (error) {
+    warn(`Alpha 历史回放失败：${formatErrorMessage(error)}`);
+    return;
+  }
+
+  if (events.length > 0) {
+    info(`Alpha 历史回放拉取到 ${events.length} 条候选事件`);
+  }
+
+  for (const event of events) {
+    try {
+      await options.onEvent(event.raw, event.receivedAt ?? new Date());
+    } catch (error) {
+      warn(`处理 Alpha 回放事件失败：${formatErrorMessage(error)}`);
+    }
+  }
+}
+
 export async function archiveAnalysisTaskResult(options: {
   task: AnalysisTaskRecord;
   result: TriggerAnalysisResult;
@@ -540,6 +593,10 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   };
   const wallet = new Wallet(options.config.alphaWalletPrivateKey);
   const factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
+  const alphaReplayProvider =
+    options.alphaReplayProvider ??
+    createUnavailableAlphaReplayProvider('当前未发现 Alpha 历史事件 REST 接口');
+  const alphaReplayUnavailableLogged = { value: false };
   const discussionStore = new DiscussionMappingStore();
   const handleTelegramUpdates = (updates: unknown[]): Promise<void> =>
     handleTelegramCommandUpdates({
@@ -717,6 +774,58 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     warn
   });
 
+  const processRawAlphaEvent = (raw: string, receivedAt: Date): Promise<void> =>
+    processAlphaMessage({
+      raw,
+      receivedAt,
+      commonFollowStarLevels: options.config.commonFollowStarLevels,
+      dedupe,
+      inFlight,
+      projectStars,
+      projectPushCounts,
+      projectFirstChannelMessages,
+      projectLocks,
+      send: sendMainTelegramMessage,
+      classify: async (message: Record<string, unknown>, count: number, star: number) => {
+        const title = messageString(message, 'title');
+        const content = messageString(message, 'content');
+        const link = messageString(message, 'link');
+        const result = await classifyAccount({
+          xaiApiKey: options.config.xaiApiKey,
+          xaiBaseUrl: options.config.xaiBaseUrl,
+          xaiModel: options.config.xaiModel,
+          proxyUrl: options.config.proxyUrl,
+          xaiRetryAttempts: options.config.xaiRetryAttempts,
+          xaiRetryMinDelayMs: options.config.xaiRetryMinDelayMs,
+          xaiRetryMaxDelayMs: options.config.xaiRetryMaxDelayMs,
+          xaiMaxTokens: options.config.xaiMaxTokens,
+          onRetry: (error, attempt, delayMs) => {
+            warn(
+              `Grok 账号分类请求失败，${delayMs}ms 后重试：attempt=${attempt} error=${formatErrorMessage(error)}`
+            );
+          },
+          title,
+          content,
+          link,
+          count,
+          star
+        });
+        return {
+          allowPush: shouldAllowClassifiedAccount(result),
+          type: result.type,
+          reason: result.reason
+        };
+      },
+      afterSend: handleAfterMainSend,
+      enqueueFailedMainPush: async (record) => {
+        await failedQueue.enqueue(record);
+        warn(`主推送失败已写入补偿队列：dedupeKey=${record.dedupeKey} error=${record.lastError ?? ''}`);
+      },
+      persistProjectState,
+      info,
+      warn
+    });
+
   let stopped = false;
   let socket: WebSocket | undefined;
   let heartbeatTimer: NodeJS.Timeout | undefined;
@@ -773,63 +882,20 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
         info('alpha websocket 已连接');
         scheduleHeartbeatTimeout();
         scheduleBusinessSilenceTimeout();
+        void replayAlphaEvents({
+          provider: alphaReplayProvider,
+          since: new Date(Date.now() - options.config.alphaReplayLookbackMs),
+          onEvent: processRawAlphaEvent,
+          unavailableLogged: alphaReplayUnavailableLogged,
+          info,
+          warn
+        });
       });
       socket.on('message', (data) => {
         const receivedAt = new Date();
         const raw = data.toString();
-        void processAlphaMessage({
-          raw,
-          receivedAt,
-          commonFollowStarLevels: options.config.commonFollowStarLevels,
-          dedupe,
-          inFlight,
-          projectStars,
-          projectPushCounts,
-          projectFirstChannelMessages,
-          projectLocks,
-          send: sendMainTelegramMessage,
-          classify: async (message: Record<string, unknown>, count: number, star: number) => {
-            const title = messageString(message, 'title');
-            const content = messageString(message, 'content');
-            const link = messageString(message, 'link');
-            const result = await classifyAccount({
-              xaiApiKey: options.config.xaiApiKey,
-              xaiBaseUrl: options.config.xaiBaseUrl,
-              xaiModel: options.config.xaiModel,
-              proxyUrl: options.config.proxyUrl,
-              xaiRetryAttempts: options.config.xaiRetryAttempts,
-              xaiRetryMinDelayMs: options.config.xaiRetryMinDelayMs,
-              xaiRetryMaxDelayMs: options.config.xaiRetryMaxDelayMs,
-              xaiMaxTokens: options.config.xaiMaxTokens,
-              onRetry: (error, attempt, delayMs) => {
-                warn(
-                  `Grok 账号分类请求失败，${delayMs}ms 后重试：attempt=${attempt} error=${
-                    error instanceof Error ? error.message : String(error)
-                  }`
-                );
-              },
-              title,
-              content,
-              link,
-              count,
-              star
-            });
-            return {
-              allowPush: shouldAllowClassifiedAccount(result),
-              type: result.type,
-              reason: result.reason
-            };
-          },
-          afterSend: handleAfterMainSend,
-          enqueueFailedMainPush: async (record) => {
-            await failedQueue.enqueue(record);
-            warn(`主推送失败已写入补偿队列：dedupeKey=${record.dedupeKey} error=${record.lastError ?? ''}`);
-          },
-          persistProjectState,
-          info,
-          warn
-        }).catch((error) => {
-          warn(`处理 alpha 消息失败：${error instanceof Error ? error.message : String(error)}`);
+        void processRawAlphaEvent(raw, receivedAt).catch((error) => {
+          warn(`处理 alpha 消息失败：${formatErrorMessage(error)}`);
         });
         scheduleHeartbeatTimeout();
         try {

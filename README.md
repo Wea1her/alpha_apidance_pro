@@ -77,6 +77,8 @@ ALPHA_WS_BASE_URL=wss://alpha.apidance.pro/api
 
 COMMON_FOLLOW_STAR_LEVELS=5,8,12,15,20
 ALPHA_HEARTBEAT_TIMEOUT_MS=90000
+ALPHA_BUSINESS_SILENCE_TIMEOUT_MS=60000
+ALPHA_REPLAY_LOOKBACK_MS=600000
 ALPHA_RECONNECT_MIN_DELAY_MS=1000
 ALPHA_RECONNECT_MAX_DELAY_MS=30000
 
@@ -124,6 +126,10 @@ TWITTER_API_BASE_URL=https://ai.6551.io
 `ALPHA_WS_BASE_URL` 是 Alpha WebSocket API 地址，默认是 `wss://alpha.apidance.pro/api`。
 
 `COMMON_FOLLOW_STAR_LEVELS` 是共同关注星级阈值，默认建议 `5,8,12,15,20`。
+
+`ALPHA_BUSINESS_SILENCE_TIMEOUT_MS` 是业务消息静默 watchdog，默认 60 秒。超过该时间没有收到非 heartbeat 业务消息会主动重连，用于缩短 WebSocket 假活窗口。
+
+`ALPHA_REPLAY_LOOKBACK_MS` 是未来 Alpha 历史回放 provider 可用时的回看窗口，默认 10 分钟。当前未发现可用的 Alpha 历史事件 REST 接口，因此不会补回上游没有下发的共同关注事件。
 
 `TELEGRAM_BOT_TOKEN` 是 Telegram 机器人 Token。
 
@@ -497,12 +503,14 @@ PROXY_URL=http://172.31.224.1:7890
 ```text
 WebSocket 断线自动重连
 heartbeat 超时主动重连
+业务消息静默 60 秒主动重连
 登录失败自动重试
 Telegram 主推送 fetch failed 自动重试
 Telegram 讨论群回复和 updates 轮询自动重试
 Telegram 主推送最终失败后写入本地补偿队列
 后台 worker 定时补发失败主推送，成功后继续触发分析流程
 超过最大补发次数进入死信队列
+Alpha 历史回放 provider 边界已预留；当前上游没有历史事件 REST 接口时不伪造补漏
 讨论群分析任务异步入队，不阻塞主推送成功判定
 讨论群映射缺失、Grok 失败、评论回复失败都会进入分析补偿队列
 Grok 空回复会按可重试错误处理，并在日志里记录 completion_tokens 和 finish_reason
@@ -513,7 +521,7 @@ Grok 空回复会按可重试错误处理，并在日志里记录 completion_tok
 Grok 分析失败不影响后续 WebSocket 监听
 ```
 
-注意：Alpha WebSocket 断线期间，如果上游没有补发历史消息，服务无法凭空补回断线窗口内的 Alpha 推送，只能尽快重连并继续接收新消息。
+注意：Alpha WebSocket 断线或上游 502 期间，如果 Alpha 没有下发历史事件，且没有可用历史事件 REST 接口，服务无法重建断线窗口内的共同关注推送。当前优化能缩短假活窗口，并保障“已经收到但 Telegram 发送失败”的事件被本地队列补发。
 
 ## 本地验证
 
@@ -534,5 +542,5 @@ npm run typecheck
 - `.env` 不要提交到 GitHub。
 - 钱包私钥只建议使用专门为 Alpha 白名单准备的钱包，不要使用存放资金的钱包。
 - Telegram Bot Token、Grok API Key、6551 Token 泄露后需要立即吊销并更换。
-- 项目级星级状态当前保存在内存中，服务重启会清空。
+- 项目级星级状态保存在 `PROJECT_STATE_PATH`，服务重启后会恢复。
 - 修改 `analysis-skills/project-alpha.md` 后需要重启服务才能加载新分析规则。

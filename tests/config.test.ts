@@ -29,7 +29,8 @@ describe('parseServiceConfig', () => {
       xaiMaxTokens: 2048,
       telegramRetryAttempts: 5,
       heartbeatTimeoutMs: 90000,
-      businessSilenceTimeoutMs: 180000,
+      businessSilenceTimeoutMs: 60000,
+      alphaReplayLookbackMs: 600000,
       telegramRetryMinDelayMs: 1000,
       telegramRetryMaxDelayMs: 30000,
       failedQueuePath: 'data/failed-messages.jsonl',
@@ -76,6 +77,17 @@ describe('parseServiceConfig', () => {
       businessSilenceTimeoutMs: 180000,
       reconnectMinDelayMs: 500,
       reconnectMaxDelayMs: 15000
+    });
+  });
+
+  it('parses alpha replay lookback config', () => {
+    expect(
+      parseServiceConfig({
+        ...baseEnv,
+        ALPHA_REPLAY_LOOKBACK_MS: '300000'
+      })
+    ).toMatchObject({
+      alphaReplayLookbackMs: 300000
     });
   });
 

@@ -24,6 +24,7 @@ export interface ServiceConfig {
   commonFollowStarLevels: number[];
   heartbeatTimeoutMs: number;
   businessSilenceTimeoutMs: number;
+  alphaReplayLookbackMs: number;
   reconnectMinDelayMs: number;
   reconnectMaxDelayMs: number;
   telegramRetryAttempts: number;
@@ -99,7 +100,8 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     twitterApiBaseUrl: env.TWITTER_API_BASE_URL?.trim() || 'https://ai.6551.io',
     commonFollowStarLevels: parseStarLevels(env.COMMON_FOLLOW_STAR_LEVELS),
     heartbeatTimeoutMs: parsePositiveInteger(env, 'ALPHA_HEARTBEAT_TIMEOUT_MS', 90_000),
-    businessSilenceTimeoutMs: parsePositiveInteger(env, 'ALPHA_BUSINESS_SILENCE_TIMEOUT_MS', 180_000),
+    businessSilenceTimeoutMs: parsePositiveInteger(env, 'ALPHA_BUSINESS_SILENCE_TIMEOUT_MS', 60_000),
+    alphaReplayLookbackMs: parsePositiveInteger(env, 'ALPHA_REPLAY_LOOKBACK_MS', 600_000),
     reconnectMinDelayMs: parsePositiveInteger(env, 'ALPHA_RECONNECT_MIN_DELAY_MS', 1_000),
     reconnectMaxDelayMs: parsePositiveInteger(env, 'ALPHA_RECONNECT_MAX_DELAY_MS', 30_000),
     telegramRetryAttempts: parsePositiveInteger(env, 'TELEGRAM_RETRY_ATTEMPTS', 5),

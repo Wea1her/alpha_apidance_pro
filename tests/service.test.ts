@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AnalysisArchiveRecord } from '../src/analysis-archive-store.js';
 import type { AnalysisTaskRecord } from '../src/analysis-task-queue.js';
+import { createUnavailableAlphaReplayProvider, type AlphaReplayProvider } from '../src/alpha-replay-provider.js';
 import {
   archiveAnalysisTaskResult,
   handleTelegramCommandUpdates,
-  processAlphaMessage
+  processAlphaMessage,
+  replayAlphaEvents
 } from '../src/service.js';
 
 describe('processAlphaMessage', () => {
@@ -700,6 +702,83 @@ describe('processAlphaMessage', () => {
 
     sendResolves[1]({ chatId: -1001234567890, messageId: 456 });
     await second;
+  });
+});
+
+describe('replayAlphaEvents', () => {
+  it('logs unavailable replay once and does not process events', async () => {
+    const warn = vi.fn();
+    const onEvent = vi.fn();
+    const unavailableLogged = { value: false };
+    const provider = createUnavailableAlphaReplayProvider('no historical endpoint');
+
+    await replayAlphaEvents({
+      provider,
+      since: new Date('2026-05-21T00:00:00.000Z'),
+      onEvent,
+      unavailableLogged,
+      warn
+    });
+    await replayAlphaEvents({
+      provider,
+      since: new Date('2026-05-21T00:01:00.000Z'),
+      onEvent,
+      unavailableLogged,
+      warn
+    });
+
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('Alpha 历史回放不可用');
+  });
+
+  it('replays available events through the same alpha message processing path', async () => {
+    const provider: AlphaReplayProvider = {
+      available: true,
+      async replaySince() {
+        return [
+          {
+            raw: JSON.stringify({
+              channel: 'follow',
+              title: 'A 关注了 B',
+              content: '你关注的8个用户也关注了ta',
+              link: 'https://x.com/b',
+              push_at: 1778660297
+            }),
+            receivedAt: new Date('2026-05-21T00:00:01.000Z')
+          }
+        ];
+      }
+    };
+    const dedupe = new Set<string>();
+    const send = vi.fn().mockResolvedValue({ chatId: -1001, messageId: 10 });
+
+    const onEvent = (raw: string, receivedAt: Date) =>
+      processAlphaMessage({
+        raw,
+        receivedAt,
+        commonFollowStarLevels: [5, 8, 12, 15, 20],
+        dedupe,
+        send
+      });
+
+    await replayAlphaEvents({
+      provider,
+      since: new Date('2026-05-21T00:00:00.000Z'),
+      onEvent,
+      info: vi.fn(),
+      warn: vi.fn()
+    });
+    await replayAlphaEvents({
+      provider,
+      since: new Date('2026-05-21T00:00:00.000Z'),
+      onEvent,
+      info: vi.fn(),
+      warn: vi.fn()
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toContain('⭐⭐');
   });
 });
 

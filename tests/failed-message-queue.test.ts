@@ -118,4 +118,46 @@ describe('startFailedMessageRetryWorker', () => {
       mainPushedAt
     );
   });
+
+  it('keeps failed records pending with backoff when resend fails', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-20T08:44:00.000Z'));
+    const { queue } = await createQueue({ baseDelayMs: 1000 });
+    await queue.enqueue(failedRecord, new Date('2026-05-16T00:00:00.000Z'));
+
+    const delivered = new Set<string>();
+    const inFlight = new Set<string>();
+    const send = vi.fn().mockRejectedValue(new Error('telegram down'));
+
+    const stop = startFailedMessageRetryWorker({
+      queue,
+      delivered,
+      inFlight,
+      send,
+      intervalMs: 60_000,
+      info: vi.fn(),
+      warn: vi.fn()
+    });
+
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+    stop();
+
+    const records = await queue.listAll();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      dedupeKey: failedRecord.dedupeKey,
+      retryCount: 1,
+      lastError: 'telegram down'
+    });
+    expect(new Date(records[0].nextRetryAt).getTime()).toBeGreaterThanOrEqual(
+      new Date('2026-05-20T08:44:01.000Z').getTime()
+    );
+    expect(new Date(records[0].nextRetryAt).getTime()).toBeLessThan(
+      new Date('2026-05-20T08:44:02.000Z').getTime()
+    );
+    expect(delivered.has(failedRecord.dedupeKey)).toBe(false);
+    expect(inFlight.size).toBe(0);
+  });
 });
