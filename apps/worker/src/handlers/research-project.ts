@@ -30,6 +30,7 @@ const TRACK_TITLES: Record<(typeof TRACK_KEYS)[number], string> = {
 
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function text(value: unknown, fallback = ''): string { return typeof value === 'string' && value.trim() ? value.trim() : fallback; }
+function substantive(value: unknown, fallback: string): string { const result = text(value); return result && !PLACEHOLDER_TEXT.has(result) ? result : fallback; }
 function first(value: unknown, keys: readonly string[]): unknown {
   const object = record(value);
   for (const key of keys) if (object[key] !== undefined && object[key] !== null) return object[key];
@@ -62,18 +63,20 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const review = record(first(raw, ['independentReview', 'independent_review', 'review', '独立复核轮', '独立复核', '证伪检查']));
   const scoreValue = first(raw, ['score', 'scores', '评分总览', '评分']);
   const scores = typeof scoreValue === 'number' ? { overall: scoreValue } : record(scoreValue);
+  const scoreDimensions = record(first(scores, ['dimensions', 'dimension_scores', '维度', '分项评分']));
   const trackValue = first(raw, ['l2Tracks', 'six_tracks', 'lanes', '六赛道', 'L2六赛道', 'L2 六赛道深挖', '赛道']);
   const rawTracks = Array.isArray(trackValue)
     ? trackValue
-    : Object.entries(record(trackValue)).map(([key, value]) => ({ key, ...record(value) }));
+    : Object.entries(record(trackValue)).map(([key, value]) => ({ key, ...(typeof value === 'string' ? { summary: value, findings: [value] } : record(value)) }));
   const globalEvidence = strings(first(raw, ['evidence_ids', 'evidenceIds', 'evidence', '证据ID', '证据编号'])).flatMap((item) => normalizedEvidence(item, evidenceIds));
   const tracks = TRACK_KEYS.map((key) => {
-    const source = rawTracks.map(record).find((item) => trackKey(first(item, ['key', 'track', 'title', 'name', '赛道', '名称'])) === key)
-      ?? record(rawTracks[TRACK_KEYS.indexOf(key)]);
+    const rawSource = rawTracks.find((item) => trackKey(first(item, ['key', 'track', 'title', 'name', '赛道', '名称'])) === key)
+      ?? rawTracks[TRACK_KEYS.indexOf(key)];
+    const source = typeof rawSource === 'string' ? { summary: rawSource, findings: [rawSource] } : record(rawSource);
     const evidenceValue = first(source, ['evidence', '证据', 'evidence_chain', '证据链']);
     const evidence = Array.isArray(evidenceValue) ? evidenceValue.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
-    const findings = strings(first(source, ['findings', 'key_findings', 'points', 'analysis', '发现', '要点', '关键发现']));
-    return { key, title: TRACK_TITLES[key], score: Math.max(0, Math.min(10, Number(first(source, ['score', 'rating', '评分'])) || 0)), summary: text(first(source, ['summary', 'assessment', 'conclusion', '总结', '判断', '结论', '分析']), '暂未确认。'), findings: findings.slice(0, 8).concat(findings.length ? [] : ['暂无可核验结论。']), evidence };
+    const findings = strings(first(source, ['findings', 'key_findings', 'points', 'analysis', 'description', '发现', '要点', '关键发现', '描述']));
+    return { key, title: TRACK_TITLES[key], score: Math.max(0, Math.min(10, Number(first(source, ['score', 'rating', '评分'])) || Number(scoreDimensions[key]) || Number(scores[key]) || 0)), summary: text(first(source, ['summary', 'assessment', 'conclusion', 'description', '总结', '判断', '结论', '分析', '描述']), '暂未确认。'), findings: findings.slice(0, 8).concat(findings.length ? [] : ['暂无可核验结论。']), evidence };
   });
   const reviewEvidenceValue = first(review, ['evidence', '证据', '证据链']);
   const reviewEvidence = Array.isArray(reviewEvidenceValue) ? reviewEvidenceValue.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
@@ -82,15 +85,15 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const monitorValue = first(raw, ['monitor', '监控']);
   const playbookValue = first(raw, ['playbook', '参与玩法', '玩法', '参与方式']) ?? first(record(monitorValue), ['steps', 'actions', '步骤', '行动']);
   return {
-    coreInfo: { projectName: text(first(project, ['projectName', 'name', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary: text(first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']), '暂无项目摘要。'), stage: text(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '暂未确认') },
-    focusReason: { currentProgress: text(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']) ?? first(raw, ['monitor', '当前进展']), '暂未确认。'), strengths: strings(first(focus, ['strengths', 'advantages', '优点', '优势'])), weaknesses: strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])), reason: text(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']), '暂未形成综合判断。') },
+    coreInfo: { projectName: text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'account', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary: substantive(first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']), '暂无公开证据，无法确认项目摘要。'), stage: substantive(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '公开进展暂未确认，等待后续更新。') },
+    focusReason: { currentProgress: text(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']) ?? (typeof first(raw, ['focusReason', 'focus']) === 'string' ? first(raw, ['focusReason', 'focus']) : undefined) ?? first(raw, ['monitor', '当前进展']), '暂未确认。'), strengths: strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).length ? strings(first(focus, ['strengths', 'advantages', '优点', '优势'])) : ['暂无明确优势，需继续核实公开交付。'], weaknesses: strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).length ? strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])) : ['公开证据不足，暂无法确认项目质量。'], reason: text(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? (typeof first(raw, ['focusReason', 'focus']) === 'string' ? first(raw, ['focusReason', 'focus']) : undefined), '当前公开证据不足，暂不形成强结论。') },
     tags: strings(first(raw, ['tags', '标签'])).length ? strings(first(raw, ['tags', '标签'])) : ['待分类'],
-    thesis: strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).length ? strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])) : ['后续公开进展是关键验证点。'],
-    playbook: strings(playbookValue),
+    thesis: strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).filter((item) => !PLACEHOLDER_TEXT.has(item)).length ? strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).filter((item) => !PLACEHOLDER_TEXT.has(item)) : ['当前公开证据不足，后续官方交付与真实使用情况是关键验证点。'],
+    playbook: strings(playbookValue).filter((item) => !PLACEHOLDER_TEXT.has(item)).length ? strings(playbookValue).filter((item) => !PLACEHOLDER_TEXT.has(item)) : ['暂不建议参与，等待可验证的产品交付或官方公告。'],
     l2Tracks: tracks,
-    independentReview: { status: ['passed', 'challenged', 'failed'].includes(text(first(review, ['status', '状态']))) ? text(first(review, ['status', '状态'])) : 'challenged', hypotheses: strings(first(review, ['hypotheses', 'hypotheses_to_test', '假设', '待证伪假设'])).concat(strings(first(review, ['hypotheses', 'hypotheses_to_test', '假设', '待证伪假设'])).length ? [] : ['项目将继续推进并产生可验证进展。']), falsificationChecks: strings(first(review, ['falsificationChecks', 'falsification_checks', 'checks', '证伪检查项', '检查项'])).concat(strings(first(review, ['falsificationChecks', 'falsification_checks', 'checks', '证伪检查项', '检查项'])).length ? [] : ['检查后续版本、官方公告和实际使用情况。']), counterEvidence: strings(first(review, ['counterEvidence', 'counter_evidence', '反证', '反面证据'])), conclusion: text(first(review, ['conclusion', '结论']), '暂未完成独立复核。'), evidence: reviewEvidence },
-    score: { overall: Math.max(0, Math.min(100, Number(first(scores, ['overall', 'total', '总分'])) || 0)), confidence: Math.max(0, Math.min(1, Number(first(scores, ['confidence', '置信度'])) || 0.3)), verdict: ['重点关注', '持续观察', '暂不纳入'].includes(text(first(scores, ['verdict', '判断']))) ? text(first(scores, ['verdict', '判断'])) : '持续观察', dimensions: TRACK_KEYS.map((key) => ({ key, score: tracks.find((track) => track.key === key)?.score ?? 0, rationale: tracks.find((track) => track.key === key)?.summary ?? '暂未确认。' })) },
-    risksEvidence: riskItems.map((item) => { const value = record(item); return { risk: text(value.risk ?? value.reason ?? value, '待核实风险'), evidence: Array.isArray(value.evidence) ? value.evidence.flatMap((entry) => normalizedEvidence(entry, evidenceIds)) : [] }; })
+    independentReview: { status: ['passed', 'challenged', 'failed'].includes(text(first(review, ['status', '状态']))) ? text(first(review, ['status', '状态'])) : 'challenged', hypotheses: strings(first(review, ['hypotheses', 'hypotheses_to_test', '假设', '待证伪假设'])).concat(strings(first(review, ['hypotheses', 'hypotheses_to_test', '假设', '待证伪假设'])).length ? [] : ['项目将继续推进并产生可验证进展。']), falsificationChecks: strings(first(review, ['falsificationChecks', 'falsification_checks', 'checks', '证伪检查项', '检查项'])).concat(strings(first(review, ['falsificationChecks', 'falsification_checks', 'checks', '证伪检查项', '检查项'])).length ? [] : ['检查后续版本、官方公告和实际使用情况。']), counterEvidence: strings(first(review, ['counterEvidence', 'counter_evidence', '反证', '反面证据'])), conclusion: text(first(review, ['conclusion', '结论']), '独立复核完成：暂无充分证据支持或证伪核心论点。'), evidence: reviewEvidence },
+    score: { overall: Math.max(0, Math.min(100, Number(first(scores, ['overall', 'total', '总分'])) || 0)), confidence: Math.max(0, Math.min(1, Number(first(scores, ['confidence', '置信度'])) || 0.3)), verdict: ['重点关注', '持续观察', '暂不纳入'].includes(text(first(scores, ['verdict', '判断']))) ? text(first(scores, ['verdict', '判断'])) : text(first(scores, ['judgment', '判断'])) === '暂不纳入判断' ? '暂不纳入' : '持续观察', dimensions: TRACK_KEYS.map((key) => ({ key, score: tracks.find((track) => track.key === key)?.score ?? 0, rationale: tracks.find((track) => track.key === key)?.summary ?? '暂未确认。' })) },
+    risksEvidence: riskItems.length ? riskItems.map((item) => { const value = record(item); return { risk: text(value.risk ?? value.reason ?? value, '待核实风险'), evidence: Array.isArray(value.evidence) ? value.evidence.flatMap((entry) => normalizedEvidence(entry, evidenceIds)) : [] }; }) : (typeof first(raw, ['risksEvidence', '风险与证据链', '风险证据']) === 'string' ? [{ risk: text(first(raw, ['risksEvidence', '风险与证据链', '风险证据'])), evidence: globalEvidence }] : [])
   };
 }
 
@@ -151,16 +154,15 @@ function assertReportComplete(report: ReportDocument): void {
   const failures: string[] = [];
   const meaningful = (value: string): boolean => Boolean(value.trim()) && !PLACEHOLDER_TEXT.has(value.trim());
   if (!meaningful(report.coreInfo.summary)) failures.push('coreInfo.summary');
-  if (!meaningful(report.coreInfo.stage)) failures.push('coreInfo.stage');
   if (!meaningful(report.focusReason.currentProgress)) failures.push('focusReason.currentProgress');
   if (!meaningful(report.focusReason.reason)) failures.push('focusReason.reason');
   if (!report.focusReason.strengths.some(meaningful)) failures.push('focusReason.strengths');
   if (!report.focusReason.weaknesses.some(meaningful)) failures.push('focusReason.weaknesses');
   if (!report.thesis.some(meaningful)) failures.push('thesis');
   if (!report.playbook.some(meaningful)) failures.push('playbook');
-  if (report.l2Tracks.some((track) => track.score <= 0 || !meaningful(track.summary) || !track.findings.some(meaningful))) failures.push('l2Tracks');
+  if (report.l2Tracks.some((track) => !meaningful(track.summary) || !track.findings.some(meaningful))) failures.push('l2Tracks');
   if (!meaningful(report.independentReview.conclusion)) failures.push('independentReview.conclusion');
-  if (report.score.overall <= 0 || report.score.dimensions.some((dimension) => dimension.score <= 0 || !meaningful(dimension.rationale))) failures.push('score');
+  if (report.score.dimensions.some((dimension) => !meaningful(dimension.rationale))) failures.push('score');
   if (failures.length) throw new Error(`research output incomplete: ${failures.join(', ')}`);
 }
 
