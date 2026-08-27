@@ -18,7 +18,7 @@ export function registerReportRoutes(app: FastifyInstance, options: { database: 
            select 1 from screening_decisions sd
            where sd.project_id = p.id
              and sd.decision in ('allowed', 'manual_allowed')
-             and sd.account_type not in ('KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT', 'TRADFI')
+           and sd.account_type not in ('KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI')
              and sd.created_at = (select max(sd2.created_at) from screening_decisions sd2 where sd2.project_id = p.id)
          )`,
       [request.params.id]
@@ -42,7 +42,7 @@ export function registerReportRoutes(app: FastifyInstance, options: { database: 
            select 1 from screening_decisions sd
            where sd.project_id = p.id
              and sd.decision in ('allowed', 'manual_allowed')
-             and sd.account_type not in ('KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT', 'TRADFI')
+           and sd.account_type not in ('KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI')
              and sd.created_at = (select max(sd2.created_at) from screening_decisions sd2 where sd2.project_id = p.id)
          )`,
       [request.params.id]

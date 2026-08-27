@@ -101,8 +101,8 @@ describe('research-project handler', () => {
 
   it('skips deep research for blocked account types even if an old decision allowed it', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
-    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name, status) values ('47', 'zec_bit', 'Zec Bit', 'active') returning id`);
-    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'NFT', 'NFT 项目')`, [project.rows[0].id]);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name, status) values ('47', 'kol_account', 'KOL Account', 'active') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'KOL', 'KOL 账号')`, [project.rows[0].id]);
     const calls = { count: 0 };
     await createResearchProjectHandler(database, new AiProviderRouter([adapter(calls)]))({ id: 'job-nft', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:47', payload: { projectId: project.rows[0].id } });
     expect(calls.count).toBe(0);

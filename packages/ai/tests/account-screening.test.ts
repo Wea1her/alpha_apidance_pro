@@ -9,7 +9,7 @@ function adapter(text: string): AiProviderAdapter {
 describe('AccountScreeningService', () => {
   const input = { xUserId: '42', handle: 'alpha', displayName: 'Alpha', bio: 'test' };
   it.each([
-    ['KOL', 'blocked'], ['PERSONAL', 'blocked'], ['DEV', 'blocked'], ['MEDIA', 'blocked'], ['NFT', 'blocked'], ['PROJECT', 'allowed'], ['ALPHA', 'allowed'], ['UNKNOWN', 'allowed']
+    ['KOL', 'blocked'], ['PERSONAL', 'blocked'], ['DEV', 'blocked'], ['MEDIA', 'blocked'], ['NFT', 'allowed'], ['PROJECT', 'allowed'], ['ALPHA', 'allowed'], ['UNKNOWN', 'allowed']
   ] as const)('classifies %s as %s', async (accountType, decision) => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType, reason: '分类理由' }))]));
     await expect(service.classify(input)).resolves.toMatchObject({ accountType, decision });
@@ -34,15 +34,15 @@ describe('AccountScreeningService', () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ reason }))]));
     await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'PERSONAL' });
   });
-  it('blocks NFT and collectible projects from the short-term project pool', async () => {
-    const reason = '简介证据：NFT/PFP 收藏品项目；推文证据：持续发布头像铸造和藏品活动；粉丝/认证证据：未显示协议或产品交付；项目类型结论：NFT 项目，应过滤。';
+  it('keeps NFT and collectible projects in the short-term project pool', async () => {
+    const reason = '简介证据：NFT/PFP 收藏品项目；推文证据：持续发布头像铸造和藏品活动；粉丝/认证证据：未显示协议或产品交付；项目类型结论：NFT 官方项目，应保留。';
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'NFT', reason }))]));
-    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'NFT', reason });
+    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'allowed', accountType: 'NFT', reason });
   });
-  it('overrides a contradictory PROJECT label when the explanation identifies an NFT project', async () => {
+  it('keeps a contradictory PROJECT label specific as NFT and allowed', async () => {
     const reason = '简介证据：PFP 项目；推文证据：头像铸造活动；粉丝/认证证据：无协议交付信息；项目类型结论：NFT 收藏品。';
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason }))]));
-    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'NFT' });
+    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'allowed', accountType: 'NFT' });
   });
   it('blocks traditional stock or broker profiles as TRADFI instead of treating them as KOL', async () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '简介证据：像素经纪人通过工作获得真实股票；推文证据：未提供；粉丝/认证证据：粉丝数4884，未认证；项目类型结论：项目账号。' }))]));

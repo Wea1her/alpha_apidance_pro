@@ -14,7 +14,7 @@ export interface ScreeningInput {
 export type ScreeningDecision = 'allowed' | 'blocked' | 'failed' | 'pending_review';
 export interface ScreeningResult { decision: ScreeningDecision; accountType: AccountType | 'UNKNOWN'; reason: string; providerName?: string; model?: string; attempts: number; }
 
-const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT', 'TRADFI']);
+const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI']);
 
 function hasChinese(value: string): boolean { return /[\u3400-\u9fff]/u.test(value); }
 
@@ -26,7 +26,7 @@ const FALLBACK_REASON: Record<AccountType, string> = {
     PERSONAL: 'AI 判断该账号属于个人账号，缺少项目官方主体特征。',
     DEV: 'AI 判断该账号主要是个人开发者账号，缺少独立项目主体特征。',
     MEDIA: 'AI 判断该账号具有媒体或资讯传播属性，不属于项目官方账号。',
-    NFT: 'AI 判断该账号主要是 NFT、PFP、收藏品或数字藏品项目，不纳入短期打新项目池。',
+    NFT: 'AI 判断该账号是 NFT、PFP、收藏品或数字藏品项目官方账号，作为短期项目保留观察。',
     TRADFI: 'AI 判断该账号属于传统金融或非加密主体，不属于短期加密投机/创业项目。'
 };
 const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = { PROJECT: '项目账号', ALPHA: 'Alpha 数据账号', UNKNOWN: '账号属性暂不明确', KOL: 'KOL 账号', PERSONAL: '个人账号', DEV: '个人开发者 / Dev 账号', MEDIA: '媒体 / 社媒账号', NFT: 'NFT / PFP / 数字藏品项目', TRADFI: '传统金融 / 非加密主体' };
@@ -128,8 +128,8 @@ function parseModelOutput(text: string): ScreeningOutput {
   const explicitType = normalizeAccountType(nested.accountType ?? nested.account_type ?? nested.type ?? nested.category ?? nested.分类);
   const inferredType = inferAccountTypeFromReason(reason);
   // Some compatible providers label every crypto account as PROJECT even when
-  // their own explanation clearly describes an NFT/PFP collectible. Treat that
-  // contradiction as NFT so it cannot enter the short-term project pool.
+  // their own explanation clearly describes an NFT/PFP collectible. Preserve
+  // the more specific NFT type; NFT is an allowed project category.
   let accountType = explicitType === 'UNKNOWN' || (explicitType === 'PROJECT' && inferredType === 'NFT') ? inferredType : explicitType;
   if (BLOCKED_TYPES.has(accountType) && reasonConfirmsProject(reason)) accountType = 'PROJECT';
   return ScreeningOutputSchema.parse({ accountType, reason, ...(confidence !== undefined && Number.isFinite(confidence) ? { confidence } : {}) });
@@ -146,7 +146,7 @@ export class AccountScreeningService {
       try {
         const result = await this.router.complete({
           purpose: 'screening',
-          system: '你是短期投机/创业项目发现系统的 AI 初筛器。唯一筛选标准是：账号是否代表一个正在构建、发行、测试、增长或即将上线的短期投机型项目机会；不要把“新股申购研究”“传统股票研究”当作筛选框架，也不要因为简介或推文出现 stock、broker、research 等词就直接拦截。只保留具有明确项目主体、产品/协议、代币、积分、测试网、空投、产品上线或早期基础设施交付信号的项目账号。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号，以及 NFT/PFP/头像/数字藏品/收藏品项目；NFT 项目即使有代币或社区活动也必须判定为 NFT 并 blocked。只有当账号明确属于传统金融业务、经纪服务或仅奖励真实股票的非加密主体，且没有任何短期项目构建/交付信号时，才判定为 TRADFI 并 blocked；这只是项目范围判断，不是新股研究判断。若同时存在加密项目、链上产品、测试网、空投或创业交付证据，应按项目证据综合判断，不得因单个金融词汇否定。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
+          system: '你是短期投机/创业项目发现系统的 AI 初筛器。唯一筛选标准是：账号是否代表一个正在构建、发行、测试、增长或即将上线的短期投机型项目机会；不要把“新股申购研究”“传统股票研究”当作筛选框架，也不要因为简介或推文出现 stock、broker、research 等词就直接拦截。只保留具有明确项目主体、产品/协议、代币、积分、测试网、空投、产品上线或早期基础设施交付信号的项目账号。必须过滤 KOL、个人账号、个人开发者/dev 账号和媒体账号；NFT/PFP/头像/数字藏品/收藏品官方项目属于允许保留的项目类型，只有 NFT 收藏者、NFT KOL 或个人账号才过滤。只有当账号明确属于传统金融业务、经纪服务或仅奖励真实股票的非加密主体，且没有任何短期项目构建/交付信号时，才判定为 TRADFI 并 blocked；这只是项目范围判断，不是新股研究判断。若同时存在加密项目、链上产品、测试网、空投或创业交付证据，应按项目证据综合判断，不得因单个金融词汇否定。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
           user: JSON.stringify(input),
           schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT|TRADFI","reason":"中文具体判断理由","confidence":0.0}'
         });
