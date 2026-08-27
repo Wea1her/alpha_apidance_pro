@@ -50,6 +50,26 @@ function chineseReportAdapter(): AiProviderAdapter {
   };
 }
 
+function legacyReportAdapter(): AiProviderAdapter {
+  return {
+    profile: { id: 'legacy', name: 'legacy-fields', baseUrl: 'https://ai.test', screeningModel: 'screen', researchModel: 'research', capabilities: ['chat', 'structured_output'], role: 'main', enabled: true, health: 'healthy' },
+    complete: async () => ({
+      model: 'research',
+      text: JSON.stringify({
+        coreInfo: { project: 'Legacy Project', xHandle: 'legacy', phase: '测试网', summary: '已发布可访问测试网。' },
+        focusReason: '账号持续发布产品更新，已有测试网用户反馈。',
+        thesis: '若测试网留存持续增长，项目有机会形成早期网络效应。',
+        playbook: '先体验测试网，记录任务与产品更新。',
+        l2Tracks: Object.fromEntries(trackKeys.map((key) => [key, { problem: `${key} 已有公开进展`, evidence: 'https://x.com/example' }])),
+        independentReview: { falsifiableHypotheses: ['若无后续版本则证伪'], checkItems: ['检查版本更新'], finalConclusion: '当前证据支持持续观察。' },
+        score: { total: 42, confidence: 0.6, dimensions: Object.fromEntries(trackKeys.map((key) => [key, 7])), judgment: '持续观察' },
+        risksEvidence: '仍需验证用户留存与真实交付。'
+      })
+    }),
+    healthCheck: async () => 'healthy'
+  };
+}
+
 describe('research-project handler', () => {
   const databases: PGlite[] = [];
   afterEach(async () => { await Promise.all(databases.splice(0).map((db) => db.close())); });
@@ -117,5 +137,22 @@ describe('research-project handler', () => {
     expect(calls).toBe(2);
     expect(result.rows[0]?.status).toBe('ready');
     expect(result.rows[0]?.rendered_markdown).toContain('后续交付是关键验证点');
+  });
+
+  it('preserves legacy Grok field names and object-shaped tracks', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('46', 'legacy', 'Legacy Project') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    await database.query(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'legacy-raw', '{}'::jsonb, 'decoded')`);
+    const raw = await database.query<{ id: string }>('select id from raw_events limit 1');
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, '46', 'common_follow', now(), '共同关注 20 人', '{}'::jsonb)`, [raw.rows[0].id, project.rows[0].id]);
+    await createResearchProjectHandler(database, new AiProviderRouter([legacyReportAdapter()]))({ id: 'job-legacy', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:46', payload: { projectId: project.rows[0].id } });
+    const result = await database.query<{ status: string; rendered_markdown: string; structured_document: { coreInfo: { handle: string }; independentReview: { conclusion: string; hypotheses: string[] }; l2Tracks: Array<{ findings: string[] }> } }>('select status, rendered_markdown, structured_document from report_versions');
+    expect(result.rows[0]?.status).toBe('ready');
+    expect(result.rows[0]?.structured_document.coreInfo.handle).toBe('legacy');
+    expect(result.rows[0]?.structured_document.independentReview.conclusion).toContain('当前证据支持');
+    expect(result.rows[0]?.structured_document.independentReview.hypotheses[0]).toContain('无后续版本');
+    expect(result.rows[0]?.structured_document.l2Tracks[0]?.findings[0]).toContain('problem:');
+    expect(result.rows[0]?.rendered_markdown).toContain('仍需验证用户留存');
   });
 });
