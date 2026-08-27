@@ -20,10 +20,13 @@ describe('research report document', () => {
     expect(markdown).toContain('# Northstar｜AI 调研报告');
     expect(markdown).toContain('## 二、项目背景/背书账号');
     expect(markdown).toContain('## 六、关注理由');
-    expect(markdown).toContain('## 十、L2 六赛道深挖');
-    expect(markdown).toContain('## 十一、独立复核轮：证伪检查');
-    expect(markdown).toContain('## 十三、风险与证据链');
-    expect(markdown).toContain('总分：60.0 / 100');
+    expect(markdown).not.toContain('## 八、核心论点');
+    expect(markdown).not.toContain('## 九、参与玩法');
+    expect(markdown).not.toContain('## 十、L2 六赛道深挖');
+    expect(markdown).not.toContain('## 十一、独立复核轮：证伪检查');
+    expect(markdown).not.toContain('## 十二、评分总览');
+    expect(markdown).not.toContain('## 十三、风险与证据链');
+    expect(markdown).not.toContain('总分：60.0 / 100');
     expect(markdown).not.toContain('"coreInfo"');
   });
   it('rejects a report that cites an unavailable evidence id', () => {

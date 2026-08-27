@@ -109,9 +109,10 @@ describe('research-project handler', () => {
     await createResearchProjectHandler(database, new AiProviderRouter([chineseReportAdapter()]))({ id: 'job-cn', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:44', payload: { projectId: project.rows[0].id } });
     const result = await database.query<{ rendered_markdown: string }>('select rendered_markdown from report_versions');
     expect(result.rows[0]?.rendered_markdown).toContain('观点：值得持续跟踪产品进展');
-    expect(result.rows[0]?.rendered_markdown).toContain('产品留存将验证叙事');
-    expect(result.rows[0]?.rendered_markdown).toContain('关注测试网任务');
-    expect(result.rows[0]?.rendered_markdown).not.toContain('后续公开进展是关键验证点。');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('产品留存将验证叙事');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('关注测试网任务');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('L2 六赛道深挖');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('评分总览');
   });
 
   it('retries a syntactically valid but incomplete report before persisting', async () => {
@@ -133,10 +134,11 @@ describe('research-project handler', () => {
       healthCheck: async () => 'healthy'
     };
     await createResearchProjectHandler(database, new AiProviderRouter([retryAdapter]))({ id: 'job-retry', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:45', payload: { projectId: project.rows[0].id } });
-    const result = await database.query<{ status: string; rendered_markdown: string }>('select status, rendered_markdown from report_versions');
+    const result = await database.query<{ status: string; rendered_markdown: string; structured_document: { thesis: string[] } }>('select status, rendered_markdown, structured_document from report_versions');
     expect(calls).toBe(2);
     expect(result.rows[0]?.status).toBe('ready');
-    expect(result.rows[0]?.rendered_markdown).toContain('后续交付是关键验证点');
+    expect(result.rows[0]?.structured_document.thesis[0]).toContain('后续交付是关键验证点');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('核心论点');
   });
 
   it('preserves legacy Grok field names and object-shaped tracks', async () => {
@@ -147,12 +149,13 @@ describe('research-project handler', () => {
     const raw = await database.query<{ id: string }>('select id from raw_events limit 1');
     await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, '46', 'common_follow', now(), '共同关注 20 人', '{}'::jsonb)`, [raw.rows[0].id, project.rows[0].id]);
     await createResearchProjectHandler(database, new AiProviderRouter([legacyReportAdapter()]))({ id: 'job-legacy', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:46', payload: { projectId: project.rows[0].id } });
-    const result = await database.query<{ status: string; rendered_markdown: string; structured_document: { coreInfo: { handle: string }; independentReview: { conclusion: string; hypotheses: string[] }; l2Tracks: Array<{ findings: string[] }> } }>('select status, rendered_markdown, structured_document from report_versions');
+    const result = await database.query<{ status: string; rendered_markdown: string; structured_document: { coreInfo: { handle: string }; independentReview: { conclusion: string; hypotheses: string[] }; l2Tracks: Array<{ findings: string[] }>; risksEvidence: Array<{ risk: string }> } }>('select status, rendered_markdown, structured_document from report_versions');
     expect(result.rows[0]?.status).toBe('ready');
     expect(result.rows[0]?.structured_document.coreInfo.handle).toBe('legacy');
     expect(result.rows[0]?.structured_document.independentReview.conclusion).toContain('当前证据支持');
     expect(result.rows[0]?.structured_document.independentReview.hypotheses[0]).toContain('无后续版本');
     expect(result.rows[0]?.structured_document.l2Tracks[0]?.findings[0]).toContain('problem:');
-    expect(result.rows[0]?.rendered_markdown).toContain('仍需验证用户留存');
+    expect(result.rows[0]?.structured_document.risksEvidence[0]?.risk).toContain('仍需验证用户留存');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('L2 六赛道深挖');
   });
 });

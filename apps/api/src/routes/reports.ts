@@ -1,6 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { ApiDatabase } from '../types.js';
 
+/** Hide internal research sections from legacy stored reports at read time. */
+function publicReportMarkdown(markdown: string | null): string | null {
+  if (!markdown) return markdown;
+  const marker = /(?:^|\n)##\s+[^\n]*(?:核心论点|参与玩法|L2 六赛道深挖|独立复核轮|评分总览|风险与证据链)[^\n]*/u;
+  const match = marker.exec(markdown);
+  return match ? markdown.slice(0, match.index).trimEnd() : markdown;
+}
+
 export function registerReportRoutes(app: FastifyInstance, options: { database: ApiDatabase }): void {
   app.get<{ Params: { id: string } }>('/api/projects/:id/reports', async (request) => {
     const eligible = await options.database.query<{ id: string }>(
@@ -28,13 +36,16 @@ export function registerReportRoutes(app: FastifyInstance, options: { database: 
       [request.params.id]
     );
     if (!eligible.rows[0]) return reply.code(404).send({ error: 'not_found' });
-    const result = await options.database.query(
+    const result = await options.database.query<{
+      id: string; version: number; status: string; structured_document: unknown;
+      rendered_markdown: string | null; change_summary: unknown; created_at: string; completed_at: string | null;
+    }>(
       `select id, version, status, structured_document, rendered_markdown, change_summary, created_at, completed_at
        from report_versions where project_id = $1 and version = $2`,
       [request.params.id, version]
     );
     const row = result.rows[0];
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    return { item: row };
+    return { item: { ...row, rendered_markdown: publicReportMarkdown(row.rendered_markdown) } };
   });
 }
