@@ -88,9 +88,11 @@ function reasonConfirmsProject(reason: string): boolean {
   // retained. Treat that as a model contradiction instead of blocking a valid
   // project. This guard only applies when the reason contains an explicit
   // negation of the blocked labels plus a positive retain/project conclusion.
-  return /(?:不属于|非|不是)\s*(?:KOL|个人(?:账号|用户)?|开发者|Dev|媒体|NFT|PFP|TRADFI|传统金融)/iu.test(reason)
-    && /(?:项目|协议|产品|平台|链上)/u.test(reason)
-    && /(?:保留|应保留|允许进入|符合(?:筛选|标准))/u.test(reason);
+  if (/(?:判定\s*blocked|应\s*blocked|必须过滤|直接过滤|属于个人\s*KOL|属于\s*KOL\/)/iu.test(reason)) return false;
+  const explicitProject = /(?:项目主体|项目账号|协议项目|产品账号|基础设施|链上.*(?:项目|协议|产品)|明确指向.*(?:项目|协议|产品)|账号为.*(?:项目|协议|产品))/u.test(reason);
+  const retained = /(?:应保留|保留标准|允许进入|符合(?:筛选|保留|项目)?标准|项目机会)/u.test(reason);
+  const notBlocked = /(?:不属于|非|不是)\s*(?:KOL|个人(?:账号|用户)?|开发者|Dev|媒体|NFT|PFP|TRADFI|传统金融)/iu.test(reason);
+  return explicitProject && retained && (notBlocked || /项目类型结论/u.test(reason));
 }
 
 function hasCryptoScope(value: string): boolean {
