@@ -45,7 +45,7 @@ export function buildResearchReportPrompt(input: ResearchPromptInput): { system:
     `\n可用 Evidence：\n${input.evidence.length ? input.evidence.map((item) => `- ${item}`).join('\n') : '- 暂无'}`,
     `\n联网搜索结果（仅作为公开资料线索，必须结合 Evidence 谨慎判断）：\n${input.webSearch?.length ? input.webSearch.map((item) => `- ${item}`).join('\n') : '- 未找到公开搜索结果，请明确标注“暂无公开资料”'}`
   ].join('\n');
-  return { system: '你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook、l2Tracks、independentReview、score、risksEvidence）；coreInfo.background 仅用于第 2 节项目背景，不要输出独立的背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据。中文只写在字段值中，不要把章节标题当作 JSON 键名。必须完成 1-7 节中文分析、六赛道深挖和独立复核轮证伪；正文要充分展开，每个字段优先使用完整段落和多条具体要点。', user };
+  return { system: '你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook、l2Tracks、independentReview、score、risksEvidence）；coreInfo.background 仅用于第 2 节项目背景，不要输出独立的背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据。中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入“4. 优点：”“5. 缺点：”等章节编号，禁止把多个章节合并到同一个字段。必须完成 1-7 节中文分析、六赛道深挖和独立复核轮证伪；正文要充分展开，每个字段优先使用完整段落和多条具体要点。', user };
 }
 
 export type ResearchReportDocument = ReportDocument;
