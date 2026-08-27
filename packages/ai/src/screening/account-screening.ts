@@ -75,6 +75,8 @@ function inferAccountTypeFromReason(reason: string): AccountType {
   if (/(?:媒体|资讯|新闻|内容传播账号)/i.test(reason)) return 'MEDIA';
   if (/(?:个人开发者|开发者账号|dev 账号|dev账号)/i.test(reason)) return 'DEV';
   if (/(?:个人账号|普通个人|个人用户)/i.test(reason)) return 'PERSONAL';
+  if (/(?:NFT\s*收藏者|NFT\s*collector|PFP\s*holder|个人收藏|持有者)/iu.test(reason)
+    && !/(?:NFT\s*项目|PFP\s*项目|官方账号|项目主体|collection\s*project)/iu.test(reason)) return 'PERSONAL';
   if (/(?:NFT|PFP|数字藏品|收藏品|头像项目|collectible)/i.test(reason)) return 'NFT';
   // Do not infer TRADFI from a negated mention such as “不是新股研究”.
   // The model must explicitly return TRADFI, or the profile scope guard below
@@ -131,6 +133,8 @@ function parseModelOutput(text: string): ScreeningOutput {
   // their own explanation clearly describes an NFT/PFP collectible. Preserve
   // the more specific NFT type; NFT is an allowed project category.
   let accountType = explicitType === 'UNKNOWN' || (explicitType === 'PROJECT' && inferredType === 'NFT') ? inferredType : explicitType;
+  if (accountType === 'NFT' && /(?:NFT\s*收藏者|NFT\s*collector|PFP\s*holder|个人收藏|持有者)/iu.test(reason)
+    && !/(?:NFT\s*项目|PFP\s*项目|官方账号|项目主体|collection\s*project)/iu.test(reason)) accountType = 'PERSONAL';
   if (BLOCKED_TYPES.has(accountType) && reasonConfirmsProject(reason)) accountType = 'PROJECT';
   return ScreeningOutputSchema.parse({ accountType, reason, ...(confidence !== undefined && Number.isFinite(confidence) ? { confidence } : {}) });
 }
