@@ -116,10 +116,66 @@ function SettingsView() { const [status, setStatus] = useState<Record<string, un
 function App() {
   const [view, setView] = useState<View>('feed'); const [filter, setFilter] = useState('all'); const [query, setQuery] = useState(''); const [projects, setProjects] = useState<Project[]>([]); const [selected, setSelected] = useState<Project | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [starAlert, setStarAlert] = useState<StarAlert | null>(null);
   const backgroundRefreshInFlight = useRef(false);
+  // Filter changes can leave multiple requests in flight. Keep a monotonically
+  // increasing request id so an older response can never overwrite the
+  // currently selected filter (or turn off the loading state for a newer
+  // request). Background SSE refreshes are skipped while a foreground load is
+  // active to avoid cancelling a user-initiated filter switch.
+  const loadRequestId = useRef(0);
+  const activeLoad = useRef(false);
+  const activeController = useRef<AbortController | null>(null);
   const previousStars = useRef(new Map<string, number>());
   const alertTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => { if (alertTimer.current !== undefined) window.clearTimeout(alertTimer.current); }, []);
-  const loadProjects = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => { if (showLoading) setLoading(true); try { const endpointFilter = filter === 'excluded' ? 'excluded' : 'all'; const payload = await api<{ items: Array<Record<string, unknown>> }>(`/api/projects?filter=${endpointFilter}&limit=1000`); const nextProjects = payload.items.map(mapProject); let newestAlert: StarAlert | null = null; for (const project of nextProjects) { const previous = previousStars.current.get(project.id); if (project.status !== 'excluded' && previous != null && project.star > previous && (!newestAlert || project.star - previous > newestAlert.to - newestAlert.from)) newestAlert = { projectId: project.id, projectName: project.name, handle: project.handle, from: previous, to: project.star }; previousStars.current.set(project.id, project.star); } if (newestAlert) { setStarAlert(newestAlert); if (alertTimer.current !== undefined) window.clearTimeout(alertTimer.current); alertTimer.current = window.setTimeout(() => setStarAlert(null), 5000); } setProjects(nextProjects); setError(''); } catch (error) { if (error instanceof Error && error.message === 'unauthorized') { window.location.reload(); return; } setError(error instanceof Error ? error.message : '项目加载失败'); } finally { if (showLoading) setLoading(false); } }, [filter]);
+  const loadProjects = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
+    // Do not let an SSE/timer refresh race a user-triggered filter request.
+    if (!showLoading && activeLoad.current) return;
+    const requestId = ++loadRequestId.current;
+    if (showLoading) {
+      activeController.current?.abort();
+      activeLoad.current = true;
+      setLoading(true);
+    }
+    const controller = new AbortController();
+    activeController.current = controller;
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => { timedOut = true; controller.abort(); }, 30_000);
+    const endpointFilter = filter === 'excluded' ? 'excluded' : 'all';
+    try {
+      const payload = await api<{ items: Array<Record<string, unknown>> }>(`/api/projects?filter=${endpointFilter}&limit=1000`, { signal: controller.signal });
+      // A response for a previous filter is intentionally discarded.
+      if (requestId !== loadRequestId.current) return;
+      const nextProjects = payload.items.map(mapProject);
+      let newestAlert: StarAlert | null = null;
+      for (const project of nextProjects) {
+        const previous = previousStars.current.get(project.id);
+        if (project.status !== 'excluded' && previous != null && project.star > previous && (!newestAlert || project.star - previous > newestAlert.to - newestAlert.from)) newestAlert = { projectId: project.id, projectName: project.name, handle: project.handle, from: previous, to: project.star };
+        previousStars.current.set(project.id, project.star);
+      }
+      if (newestAlert) {
+        setStarAlert(newestAlert);
+        if (alertTimer.current !== undefined) window.clearTimeout(alertTimer.current);
+        alertTimer.current = window.setTimeout(() => setStarAlert(null), 5000);
+      }
+      setProjects(nextProjects);
+      setError('');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        if (timedOut && requestId === loadRequestId.current) setError('项目同步超时，请点击刷新重试');
+        return;
+      }
+      if (requestId !== loadRequestId.current) return;
+      if (error instanceof Error && error.message === 'unauthorized') { window.location.reload(); return; }
+      setError(error instanceof Error ? error.message : '项目加载失败');
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (requestId === loadRequestId.current) {
+        if (showLoading) setLoading(false);
+        activeLoad.current = false;
+        if (activeController.current === controller) activeController.current = null;
+      }
+    }
+  }, [filter]);
   useEffect(() => { void loadProjects(); }, [loadProjects]);
   useEffect(() => {
     const stream = new EventSource('/events');
