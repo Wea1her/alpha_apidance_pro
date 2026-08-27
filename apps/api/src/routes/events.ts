@@ -48,7 +48,7 @@ export function registerEventRoute(app: FastifyInstance, options: EventRoutesOpt
         `select id, type, aggregate_type, version, aggregate_id,
                 to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as created_at
          from outbox_events
-         where (created_at, id) > ($1::timestamptz, $2::uuid)
+         where (created_at, id) > ($1::text::timestamptz, $2::uuid)
          order by created_at asc, id asc limit 50`,
         [cursorCreatedAt, cursorId]
       );
