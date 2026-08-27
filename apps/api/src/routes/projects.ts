@@ -126,6 +126,26 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
     return { items: rows.rows };
   });
 
+  // Project history is intentionally gated behind the three-star trench state.
+  // Common-follow notifications remain available to the detail panel's user
+  // list, but are never exposed as project dynamics.
+  app.get<{ Params: { id: string } }>('/api/projects/:id/tweets', async (request) => {
+    const eligible = await options.database.query<{ eligible: boolean }>(
+      `select (p.highest_star >= 3 and p.status = 'trench'
+               and exists (select 1 from alpha_monitors am where am.project_id = p.id and am.desired_state = 'enabled')) as eligible
+       from projects p where p.id = $1`,
+      [request.params.id]
+    );
+    if (!eligible.rows[0]?.eligible) return { items: [] };
+    const rows = await options.database.query(
+      `select id, type, occurred_at, common_follow_count, x_post_url, content, data
+       from signals where project_id = $1 and type = 'new_tweet'
+       order by occurred_at desc limit 100`,
+      [request.params.id]
+    );
+    return { items: rows.rows };
+  });
+
   app.get<{ Params: { id: string } }>('/api/projects/:id', async (request, reply) => {
     const result = await options.database.query(
       `select p.id, p.x_user_id, p.current_handle, p.display_name, p.avatar_url, p.status, p.exclusion_reason,

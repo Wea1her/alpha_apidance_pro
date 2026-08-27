@@ -71,6 +71,14 @@ describe('AlphaEventDecoder', () => {
     expect(buildAlphaDedupeKey(first)).toBe(buildAlphaDedupeKey(second));
   });
 
+  it('decodes nested Alpha tweet payloads into historical tweet signals', () => {
+    const event = decodeAlphaWebhook({ type: 'tweet', user_id: '12345', tweet: { id_str: 'tweet-1', full_text: 'testnet soon', url: 'https://x.com/project_alpha/status/1' } });
+    expect(event.type).toBe('new_tweet');
+    expect(event.externalId).toBe('tweet-1');
+    expect(event.content).toBe('testnet soon');
+    expect(event.xPostUrl).toContain('/status/1');
+  });
+
   it('rejects non-object Hook payloads', () => {
     expect(() => decodeAlphaWebhook('not-json')).toThrow('Alpha Hook payload must be an object');
   });

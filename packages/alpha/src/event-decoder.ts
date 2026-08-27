@@ -111,13 +111,14 @@ export function decodeAlphaWebhook(input: unknown): DecodedAlphaEvent {
   if (!record) throw new Error('Alpha Hook payload must be an object');
 
   const followUser = nestedRecord(record, ['follow_user', 'followUser', 'target_user', 'targetUser']);
+  const tweet = nestedRecord(record, ['tweet', 'status', 'post']);
   const typeHint = (readString(record, ['type', 'event', 'channel', 'push_type', 'pushType']) ?? '').toLowerCase();
-  const content = readString(record, ['content', 'text', 'message', 'body']);
-  const xPostUrl = readString(record, ['x_post_url', 'post_url', 'tweet_url', 'link', 'url']);
+  const content = readString(record, ['content', 'text', 'message', 'body']) ?? firstString(tweet ?? {}, ['content', 'full_text', 'text', 'message', 'body']);
+  const xPostUrl = readString(record, ['x_post_url', 'post_url', 'tweet_url', 'link', 'url']) ?? firstString(tweet ?? {}, ['x_post_url', 'post_url', 'tweet_url', 'url', 'link']);
   const commonFollowCount = readCount(record) ?? (content?.match(COMMON_FOLLOW_PATTERN)
     ? Number.parseInt(content.match(COMMON_FOLLOW_PATTERN)![1], 10)
     : undefined);
-  const externalId = readString(record, ['event_id', 'eventId', 'tweet_id', 'tweetId', 'id']);
+  const externalId = readString(record, ['event_id', 'eventId', 'tweet_id', 'tweetId', 'id']) ?? firstString(tweet ?? {}, ['tweet_id', 'tweetId', 'id_str', 'id']);
   // Alpha's new_follower payload puts the followed project in follow_user;
   // user is the account that triggered the notification and must not become
   // the project identity.
