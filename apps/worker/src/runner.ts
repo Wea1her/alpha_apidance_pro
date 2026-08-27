@@ -6,6 +6,7 @@ export interface WorkerRunnerOptions {
   workerId: string;
   pollMs?: number;
   lockTimeoutMs?: number;
+  concurrency?: number;
   jobTypes?: readonly string[];
   handlers: Readonly<Record<string, JobHandler>>;
 }
@@ -33,10 +34,18 @@ export class WorkerRunner {
     return true;
   }
 
-  async run(): Promise<void> {
+  private async runLoop(): Promise<void> {
     while (!this.stopped) {
       const worked = await this.runOnce();
       if (!worked) await new Promise((resolve) => setTimeout(resolve, this.options.pollMs ?? 1000));
     }
+  }
+
+  async run(): Promise<void> {
+    // Multiple loops claim jobs with SELECT ... FOR UPDATE SKIP LOCKED, so
+    // concurrency is safe and lets AI-heavy queues drain without changing the
+    // exactly-once idempotency semantics of JobStore.
+    const concurrency = Math.max(1, Math.min(16, Math.floor(this.options.concurrency ?? 1)));
+    await Promise.all(Array.from({ length: concurrency }, () => this.runLoop()));
   }
 }

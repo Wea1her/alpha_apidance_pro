@@ -41,6 +41,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgres://${POSTGRES_USER:-alpha}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alpha_research}
       WORKER_ID: ${INGEST_WORKER_ID:-alpha-ingest-worker-1}
+      WORKER_CONCURRENCY: ${INGEST_WORKER_CONCURRENCY:-2}
       WORKER_JOB_TYPES: ${INGEST_WORKER_JOB_TYPES:-decode_alpha_event}
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
@@ -60,6 +61,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgres://${POSTGRES_USER:-alpha}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alpha_research}
       WORKER_ID: ${SCREEN_WORKER_ID:-alpha-screen-worker-1}
+      WORKER_CONCURRENCY: ${SCREEN_WORKER_CONCURRENCY:-4}
       WORKER_JOB_TYPES: ${SCREEN_WORKER_JOB_TYPES:-screen_account}
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
@@ -81,6 +83,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgres://${POSTGRES_USER:-alpha}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alpha_research}
       WORKER_ID: ${RESEARCH_WORKER_ID:-alpha-research-worker-1}
+      WORKER_CONCURRENCY: ${RESEARCH_WORKER_CONCURRENCY:-2}
       WORKER_JOB_TYPES: research_project
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}

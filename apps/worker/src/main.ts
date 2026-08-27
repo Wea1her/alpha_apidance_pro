@@ -55,6 +55,7 @@ if (needsAi && aiApiKey && aiBaseUrl) {
 }
 const runner = new WorkerRunner(database, {
   workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
+  concurrency: Number.parseInt(process.env.WORKER_CONCURRENCY ?? '1', 10),
   jobTypes: configuredJobTypes,
   handlers
 });
