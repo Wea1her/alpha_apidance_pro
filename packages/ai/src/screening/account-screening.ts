@@ -14,7 +14,7 @@ export interface ScreeningInput {
 export type ScreeningDecision = 'allowed' | 'blocked' | 'failed' | 'pending_review';
 export interface ScreeningResult { decision: ScreeningDecision; accountType: AccountType | 'UNKNOWN'; reason: string; providerName?: string; model?: string; attempts: number; }
 
-const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA']);
+const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT']);
 
 function hasChinese(value: string): boolean { return /[\u3400-\u9fff]/u.test(value); }
 
@@ -27,7 +27,8 @@ function chineseReason(accountType: AccountType, reason: string): string {
     KOL: 'AI 判断该账号主要承担意见领袖传播职能，不是项目官方账号。',
     PERSONAL: 'AI 判断该账号属于个人账号，缺少项目官方主体特征。',
     DEV: 'AI 判断该账号主要是个人开发者账号，缺少独立项目主体特征。',
-    MEDIA: 'AI 判断该账号具有媒体或资讯传播属性，不属于项目官方账号。'
+    MEDIA: 'AI 判断该账号具有媒体或资讯传播属性，不属于项目官方账号。',
+    NFT: 'AI 判断该账号主要是 NFT、PFP、收藏品或数字藏品项目，不纳入短期打新项目池。'
   };
   return fallback[accountType];
 }
@@ -40,6 +41,7 @@ function normalizeAccountType(value: unknown): AccountType {
   if (['PERSONAL', '个人', '个人账号', '个人用户'].includes(normalized)) return 'PERSONAL';
   if (['DEV', '开发者', '个人开发者', 'DEVELOPER', 'BUILDЕR'].includes(normalized)) return 'DEV';
   if (['MEDIA', '媒体', '媒体账号', '资讯媒体'].includes(normalized)) return 'MEDIA';
+  if (['NFT', 'NFT项目', 'NFT账号', 'PFP', '头像项目', '收藏品', '数字藏品', 'NFT_COLLECTION'].includes(normalized)) return 'NFT';
   return 'UNKNOWN';
 }
 
@@ -48,6 +50,7 @@ function inferAccountTypeFromReason(reason: string): AccountType {
   if (/(?:媒体|资讯|新闻|内容传播账号)/i.test(reason)) return 'MEDIA';
   if (/(?:个人开发者|开发者账号|dev 账号|dev账号)/i.test(reason)) return 'DEV';
   if (/(?:个人账号|普通个人|个人用户)/i.test(reason)) return 'PERSONAL';
+  if (/(?:NFT|PFP|数字藏品|收藏品|头像项目|collectible)/i.test(reason)) return 'NFT';
   return 'UNKNOWN';
 }
 
@@ -63,7 +66,11 @@ function parseModelOutput(text: string): ScreeningOutput {
   const confidenceValue = nested.confidence ?? nested.score;
   const confidence = confidenceValue === undefined ? undefined : Number(confidenceValue);
   const explicitType = normalizeAccountType(nested.accountType ?? nested.account_type ?? nested.type ?? nested.category ?? nested.分类);
-  const accountType = explicitType === 'UNKNOWN' ? inferAccountTypeFromReason(reason) : explicitType;
+  const inferredType = inferAccountTypeFromReason(reason);
+  // Some compatible providers label every crypto account as PROJECT even when
+  // their own explanation clearly describes an NFT/PFP collectible. Treat that
+  // contradiction as NFT so it cannot enter the short-term project pool.
+  const accountType = explicitType === 'UNKNOWN' || (explicitType === 'PROJECT' && inferredType === 'NFT') ? inferredType : explicitType;
   return ScreeningOutputSchema.parse({ accountType, reason, ...(confidence !== undefined && Number.isFinite(confidence) ? { confidence } : {}) });
 }
 
@@ -78,9 +85,9 @@ export class AccountScreeningService {
       try {
         const result = await this.router.complete({
           purpose: 'screening',
-          system: '你是打新投研账号初筛器。只判断账号属性，过滤 KOL、个人账号、个人开发者/dev 账号和媒体账号。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
+          system: '你是短期加密投机/创业项目发现系统的 AI 初筛器，不是新股申购或传统股票研究筛选器。只保留具有短期打新潜力的加密创业项目、协议、代币、积分、测试网、空投、产品上线或早期基础设施账号。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号，以及 NFT/PFP/头像/数字藏品/收藏品项目；NFT 项目即使有代币或社区活动也必须判定为 NFT 并 blocked。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
           user: JSON.stringify(input),
-          schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA","reason":"中文具体判断理由","confidence":0.0}'
+          schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT","reason":"中文具体判断理由","confidence":0.0}'
         });
         const output = parseModelOutput(result.response.text);
         const blocked = BLOCKED_TYPES.has(output.accountType);

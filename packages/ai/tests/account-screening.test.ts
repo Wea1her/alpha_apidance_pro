@@ -9,7 +9,7 @@ function adapter(text: string): AiProviderAdapter {
 describe('AccountScreeningService', () => {
   const input = { xUserId: '42', handle: 'alpha', displayName: 'Alpha', bio: 'test' };
   it.each([
-    ['KOL', 'blocked'], ['PERSONAL', 'blocked'], ['DEV', 'blocked'], ['MEDIA', 'blocked'], ['PROJECT', 'allowed'], ['ALPHA', 'allowed'], ['UNKNOWN', 'allowed']
+    ['KOL', 'blocked'], ['PERSONAL', 'blocked'], ['DEV', 'blocked'], ['MEDIA', 'blocked'], ['NFT', 'blocked'], ['PROJECT', 'allowed'], ['ALPHA', 'allowed'], ['UNKNOWN', 'allowed']
   ] as const)('classifies %s as %s', async (accountType, decision) => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType, reason: '分类理由' }))]));
     await expect(service.classify(input)).resolves.toMatchObject({ accountType, decision });
@@ -31,5 +31,15 @@ describe('AccountScreeningService', () => {
     const reason = '简介证据：个人宣言；推文证据：持续发布交易观点；粉丝/认证证据：粉丝数较高但无官方认证；结论：该账号为个人账号，应过滤。';
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ reason }))]));
     await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'PERSONAL' });
+  });
+  it('blocks NFT and collectible projects from the short-term project pool', async () => {
+    const reason = '简介证据：NFT/PFP 收藏品项目；推文证据：持续发布头像铸造和藏品活动；粉丝/认证证据：未显示协议或产品交付；项目类型结论：NFT 项目，应过滤。';
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'NFT', reason }))]));
+    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'NFT', reason });
+  });
+  it('overrides a contradictory PROJECT label when the explanation identifies an NFT project', async () => {
+    const reason = '简介证据：PFP 项目；推文证据：头像铸造活动；粉丝/认证证据：无协议交付信息；项目类型结论：NFT 收藏品。';
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason }))]));
+    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'NFT' });
   });
 });
