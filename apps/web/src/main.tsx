@@ -22,7 +22,7 @@ type CalendarEvent = { id: string; project_id: string; title: string; starts_at:
 
 const STATUS_LABEL: Record<ProjectStatus, string> = { screening: '初筛中', active: '已通过', trench: '战壕中', dormant: '休眠', pending_review: '待确认', excluded: '已排除' };
 const REPORT_LABEL: Record<string, string> = { queued: '排队中', collecting: '证据收集中', generating: '生成中', ready: '已完成', failed: '生成失败' };
-const ACCOUNT_TYPE_LABEL: Record<string, string> = { KOL: 'KOL 账号', PERSONAL: '个人账号', DEV: '个人开发者 / Dev 账号', MEDIA: '媒体 / 社媒账号', PROJECT: '项目账号', ALPHA: 'Alpha 账号', UNKNOWN: '未知账号' };
+const ACCOUNT_TYPE_LABEL: Record<string, string> = { KOL: 'KOL 账号', PERSONAL: '个人账号', DEV: '个人开发者 / Dev 账号', MEDIA: '媒体 / 社媒账号', PROJECT: '项目账号', ALPHA: 'Alpha 账号', UNKNOWN: '未知账号', NFT: 'NFT / PFP 项目', TRADFI: '传统金融 / 非加密项目' };
 
 async function api<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, { credentials: 'include', ...init, headers: { ...(init?.body ? { 'content-type': 'application/json' } : {}), ...(init?.headers ?? {}) } });

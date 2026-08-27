@@ -14,7 +14,7 @@ export interface ScreeningInput {
 export type ScreeningDecision = 'allowed' | 'blocked' | 'failed' | 'pending_review';
 export interface ScreeningResult { decision: ScreeningDecision; accountType: AccountType | 'UNKNOWN'; reason: string; providerName?: string; model?: string; attempts: number; }
 
-const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT']);
+const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT', 'TRADFI']);
 
 function hasChinese(value: string): boolean { return /[\u3400-\u9fff]/u.test(value); }
 
@@ -28,7 +28,8 @@ function chineseReason(accountType: AccountType, reason: string): string {
     PERSONAL: 'AI 判断该账号属于个人账号，缺少项目官方主体特征。',
     DEV: 'AI 判断该账号主要是个人开发者账号，缺少独立项目主体特征。',
     MEDIA: 'AI 判断该账号具有媒体或资讯传播属性，不属于项目官方账号。',
-    NFT: 'AI 判断该账号主要是 NFT、PFP、收藏品或数字藏品项目，不纳入短期打新项目池。'
+    NFT: 'AI 判断该账号主要是 NFT、PFP、收藏品或数字藏品项目，不纳入短期打新项目池。',
+    TRADFI: 'AI 判断该账号属于传统金融、股票、证券或新股申购相关主体，不属于短期加密投机/创业项目。'
   };
   return fallback[accountType];
 }
@@ -51,7 +52,28 @@ function inferAccountTypeFromReason(reason: string): AccountType {
   if (/(?:个人开发者|开发者账号|dev 账号|dev账号)/i.test(reason)) return 'DEV';
   if (/(?:个人账号|普通个人|个人用户)/i.test(reason)) return 'PERSONAL';
   if (/(?:NFT|PFP|数字藏品|收藏品|头像项目|collectible)/i.test(reason)) return 'NFT';
+  if (/(?:传统金融|股票|证券|新股|IPO|经纪商|股票研究|证券研究|equities|stock broker|brokerage)/i.test(reason)
+      && !/(?:加密|区块链|代币|链上|crypto|web3|token|defi|airdrop|testnet|mainnet)/i.test(reason)) return 'TRADFI';
   return 'UNKNOWN';
+}
+
+function hasCryptoScope(value: string): boolean {
+  return /(?:加密|区块链|代币|链上|crypto|web3|token|defi|airdrop|testnet|mainnet|solana|ethereum|base|meme coin)/i.test(value);
+}
+
+function hasTraditionalFinanceScope(value: string): boolean {
+  return /(?:传统金融|股票|证券|新股|IPO|经纪商|股票研究|证券研究|equities|stock broker|brokerage|real stocks?)/i.test(value);
+}
+
+function applyScopeGuard(input: ScreeningInput, output: ScreeningOutput): ScreeningOutput {
+  const profile = [input.handle, input.displayName, input.bio, input.sourceText].filter(Boolean).join(' ');
+  // Keep traditional stock/broker accounts auditable as a distinct blocked
+  // category instead of mislabelling them as KOL accounts.
+  if (hasTraditionalFinanceScope(profile) && !hasCryptoScope(profile)) {
+    const reason = `${output.reason} 范围校验：简介/资料仅体现传统股票或经纪业务，未发现加密项目、代币、链上产品、测试网或空投信号，归类为传统金融/非加密项目。`;
+    return { ...output, accountType: 'TRADFI', reason: reason.slice(0, 500) };
+  }
+  return output;
 }
 
 function parseModelOutput(text: string): ScreeningOutput {
@@ -85,11 +107,11 @@ export class AccountScreeningService {
       try {
         const result = await this.router.complete({
           purpose: 'screening',
-          system: '你是短期加密投机/创业项目发现系统的 AI 初筛器，不是新股申购或传统股票研究筛选器。只保留具有短期打新潜力的加密创业项目、协议、代币、积分、测试网、空投、产品上线或早期基础设施账号。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号，以及 NFT/PFP/头像/数字藏品/收藏品项目；NFT 项目即使有代币或社区活动也必须判定为 NFT 并 blocked。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
+          system: '你是短期加密投机/创业项目发现系统的 AI 初筛器，不是新股申购、IPO、传统股票或证券研究筛选器。只保留具有短期打新潜力的加密创业项目、协议、代币、积分、测试网、空投、产品上线或早期基础设施账号。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号，以及 NFT/PFP/头像/数字藏品/收藏品项目；NFT 项目即使有代币或社区活动也必须判定为 NFT 并 blocked。传统股票、证券、IPO、新股申购、基金、券商/经纪商或仅奖励真实股票的非加密项目，统一判定为 TRADFI 并 blocked，不能因为出现 stocks、broker、research 等词就判为 KOL。只有明确存在加密、区块链、代币、链上产品、测试网、空投等证据时，才可保留为 PROJECT。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
           user: JSON.stringify(input),
-          schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT","reason":"中文具体判断理由","confidence":0.0}'
+          schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT|TRADFI","reason":"中文具体判断理由","confidence":0.0}'
         });
-        const output = parseModelOutput(result.response.text);
+        const output = applyScopeGuard(input, parseModelOutput(result.response.text));
         const blocked = BLOCKED_TYPES.has(output.accountType);
         return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: chineseReason(output.accountType, output.reason), providerName: result.provider.name, model: result.response.model, attempts };
       } catch (error) {
