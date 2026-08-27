@@ -72,6 +72,31 @@ describe('JobStore', () => {
     await expect(jobs.claim({ workerId: 'worker-1', now })).resolves.toBeNull();
   });
 
+  it('prioritizes fresh screening jobs over an old screening backlog', async () => {
+    const database = new PGlite();
+    databases.push(database);
+    await migrateDatabase(database);
+    const jobs = new JobStore(database);
+    const now = new Date('2026-08-27T12:00:00.000Z');
+
+    await jobs.enqueue({
+      type: 'screen_account',
+      idempotencyKey: 'screen:old',
+      payload: { projectId: 'old' },
+      priority: 10,
+      runAfter: new Date('2026-08-27T08:00:00.000Z')
+    });
+    await jobs.enqueue({
+      type: 'screen_account',
+      idempotencyKey: 'screen:fresh',
+      payload: { projectId: 'fresh' },
+      priority: 10,
+      runAfter: new Date('2026-08-27T11:59:00.000Z')
+    });
+
+    await expect(jobs.claim({ workerId: 'worker-1', now })).resolves.toMatchObject({ idempotencyKey: 'screen:fresh' });
+  });
+
   it('retries failed jobs after the delay and marks exhausted jobs dead', async () => {
     const database = new PGlite();
     databases.push(database);

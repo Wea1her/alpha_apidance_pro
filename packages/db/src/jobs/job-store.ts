@@ -110,7 +110,12 @@ export class JobStore {
          where status in ('queued', 'retry')
            and run_after <= $1
            ${typeClause}
-         order by priority asc, created_at asc
+       -- Keep fresh account screening close to real time even while an older
+       -- backlog is draining. Other job types retain FIFO ordering.
+       order by priority asc,
+                case when type = 'screen_account' and created_at > ($1::timestamptz - interval '10 minutes') then 0 else 1 end asc,
+                case when type = 'screen_account' then created_at end desc nulls last,
+                created_at asc
          for update skip locked
          limit 1
        )
