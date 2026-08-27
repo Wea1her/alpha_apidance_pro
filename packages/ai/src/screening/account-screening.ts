@@ -52,8 +52,9 @@ function inferAccountTypeFromReason(reason: string): AccountType {
   if (/(?:个人开发者|开发者账号|dev 账号|dev账号)/i.test(reason)) return 'DEV';
   if (/(?:个人账号|普通个人|个人用户)/i.test(reason)) return 'PERSONAL';
   if (/(?:NFT|PFP|数字藏品|收藏品|头像项目|collectible)/i.test(reason)) return 'NFT';
-  if (/(?:传统金融|股票|证券|新股|IPO|经纪商|股票研究|证券研究|equities|stock broker|brokerage)/i.test(reason)
-      && !/(?:加密|区块链|代币|链上|crypto|web3|token|defi|airdrop|testnet|mainnet)/i.test(reason)) return 'TRADFI';
+  // Do not infer TRADFI from a negated mention such as “不是新股研究”.
+  // The model must explicitly return TRADFI, or the profile scope guard below
+  // must find a clearly non-crypto traditional-finance profile.
   return 'UNKNOWN';
 }
 
@@ -107,7 +108,7 @@ export class AccountScreeningService {
       try {
         const result = await this.router.complete({
           purpose: 'screening',
-          system: '你是短期加密投机/创业项目发现系统的 AI 初筛器，不是新股申购、IPO、传统股票或证券研究筛选器。只保留具有短期打新潜力的加密创业项目、协议、代币、积分、测试网、空投、产品上线或早期基础设施账号。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号，以及 NFT/PFP/头像/数字藏品/收藏品项目；NFT 项目即使有代币或社区活动也必须判定为 NFT 并 blocked。传统股票、证券、IPO、新股申购、基金、券商/经纪商或仅奖励真实股票的非加密项目，统一判定为 TRADFI 并 blocked，不能因为出现 stocks、broker、research 等词就判为 KOL。只有明确存在加密、区块链、代币、链上产品、测试网、空投等证据时，才可保留为 PROJECT。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
+          system: '你是短期投机/创业项目发现系统的 AI 初筛器。唯一筛选标准是：账号是否代表一个正在构建、发行、测试、增长或即将上线的短期投机型项目机会；不要把“新股申购研究”“传统股票研究”当作筛选框架，也不要因为简介或推文出现 stock、broker、research 等词就直接拦截。只保留具有明确项目主体、产品/协议、代币、积分、测试网、空投、产品上线或早期基础设施交付信号的项目账号。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号，以及 NFT/PFP/头像/数字藏品/收藏品项目；NFT 项目即使有代币或社区活动也必须判定为 NFT 并 blocked。只有当账号明确属于传统金融业务、经纪服务或仅奖励真实股票的非加密主体，且没有任何短期项目构建/交付信号时，才判定为 TRADFI 并 blocked；这只是项目范围判断，不是新股研究判断。若同时存在加密项目、链上产品、测试网、空投或创业交付证据，应按项目证据综合判断，不得因单个金融词汇否定。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
           user: JSON.stringify(input),
           schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT|TRADFI","reason":"中文具体判断理由","confidence":0.0}'
         });
