@@ -54,6 +54,17 @@ export function createDecodeAlphaEventHandler(database: JobDatabase) {
     const followerValue = profile.followers_count ?? profile.followersCount ?? profile.followers;
     const followerCount = Number(followerValue);
     const star = event.commonFollowCount === undefined ? 0 : starForCommonFollowCount(event.commonFollowCount);
+    // An AI-excluded project is terminal for the project pool. Keep receiving
+    // the raw Alpha event for audit/replay, but do not touch the project,
+    // create another signal, or re-enter the excluded pool on later pushes.
+    const existing = await database.query<{ id: string; status: string }>(
+      'select id, status from projects where x_user_id = $1',
+      [event.xUserId]
+    );
+    if (existing.rows[0]?.status === 'excluded') {
+      await database.query('update raw_events set decode_status = $2 where id = $1', [payload.rawEventId, 'decoded']);
+      return;
+    }
     const project = await database.query<{ id: string }>(
       `insert into projects (x_user_id, current_handle, display_name, avatar_url, highest_star, highest_common_follow_count, updated_at)
        values ($1, $2, $3, $4, $5, $6, now())

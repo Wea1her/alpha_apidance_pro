@@ -37,4 +37,23 @@ describe('decode-alpha-event realtime notifications', () => {
     const project = await database.query<{ surge_until: string | null }>(`select surge_until from projects where x_user_id = 'surge-user'`);
     expect(project.rows[0]?.surge_until).not.toBeNull();
   });
+
+  it('does not materialize later Alpha pushes for an already excluded project', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, status, excluded_at, exclusion_reason) values ('excluded-user', 'excluded_project', 'excluded', now(), 'AI 初筛自动拦截：个人账号') returning id`);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'excluded-later', '{}'::jsonb, 'pending') returning id`);
+    await createDecodeAlphaEventHandler(database)({
+      id: 'job-excluded-later', type: 'decode_alpha_event', priority: 1, status: 'running', idempotencyKey: 'decode:excluded-later',
+      payload: { rawEventId: raw.rows[0].id, event: {
+        type: 'common_follow', externalId: 'excluded-event', xUserId: 'excluded-user', handle: 'excluded_project', commonFollowCount: 18,
+        occurredAt: new Date('2026-08-27T03:00:00Z'), content: '你关注的 18 个用户也关注了ta', payload: { follow_user: { id_str: 'excluded-user', screen_name: 'excluded_project' } }
+      } }
+    });
+    const signals = await database.query<{ count: string }>('select count(*)::text as count from signals where project_id = $1', [project.rows[0].id]);
+    const state = await database.query<{ status: string; exclusion_reason: string | null }>('select status, exclusion_reason from projects where id = $1', [project.rows[0].id]);
+    const rawState = await database.query<{ decode_status: string }>('select decode_status from raw_events where id = $1', [raw.rows[0].id]);
+    expect(signals.rows[0]?.count).toBe('0');
+    expect(state.rows[0]).toMatchObject({ status: 'excluded', exclusion_reason: 'AI 初筛自动拦截：个人账号' });
+    expect(rawState.rows[0]?.decode_status).toBe('decoded');
+  });
 });
