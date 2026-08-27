@@ -27,4 +27,15 @@ describe('project tweet history route', () => {
     expect(after.statusCode).toBe(200);
     expect(after.json<{ items: Array<{ type: string; content: string }> }>().items).toMatchObject([{ type: 'new_tweet', content: 'testnet soon' }]);
   });
+
+  it('filters the signal stream by an exact historical star level', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    await database.query(`insert into projects (x_user_id, current_handle, status, highest_star) values ('star-1', 'one', 'active', 1), ('star-2', 'two', 'active', 2), ('star-3', 'three', 'trench', 3)`);
+    const projects = await database.query<{ id: string; current_handle: string }>(`select id, current_handle from projects where x_user_id like 'star-%' order by current_handle`);
+    for (const project of projects.rows) await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.id]);
+    const app = Fastify(); apps.push(app); registerProjectRoutes(app, { database }); await app.ready();
+    const response = await app.inject({ method: 'GET', url: '/api/projects?filter=star_2' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: Array<{ handle: string }> }>().items.map((item) => item.handle)).toEqual(['two']);
+  });
 });

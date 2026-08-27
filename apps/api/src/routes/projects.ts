@@ -89,7 +89,9 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
     const clauses: string[] = [];
     const params: unknown[] = [];
     const approvedClause = `p.status <> 'excluded' and exists (select 1 from screening_decisions sd where sd.project_id = p.id and sd.decision in ('allowed', 'manual_allowed'))`;
-    if (filter === 'three_plus') clauses.push(`p.highest_star >= 3`, approvedClause);
+    const starFilter = /^star_([1-5])$/.exec(filter);
+    if (starFilter) clauses.push(`p.highest_star = ${Number(starFilter[1])}`, approvedClause);
+    else if (filter === 'three_plus') clauses.push(`p.highest_star >= 3`, approvedClause);
     else if (filter === 'surge') clauses.push(`p.surge_until > now()`, approvedClause);
     else if (filter === 'ca') clauses.push(`exists (select 1 from signals ca where ca.project_id = p.id and ca.type = 'ca')`, approvedClause);
     else if (filter === 'pending_review') clauses.push(`p.status = 'pending_review'`);
