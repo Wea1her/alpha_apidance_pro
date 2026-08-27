@@ -20,7 +20,9 @@ describe('AccountScreeningService', () => {
   });
   it('accepts fenced JSON and Chinese account labels from compatible providers', async () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter('```json\n{"account_type":"媒体","explanation":"资讯媒体账号"}\n```')]));
-    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'MEDIA', reason: 'AI 判断该账号具有媒体或资讯传播属性，不属于项目官方账号。' });
+    const result = await service.classify(input);
+    expect(result).toMatchObject({ decision: 'blocked', accountType: 'MEDIA' });
+    expect(result.reason).toContain('简介证据：test');
   });
   it('keeps detailed Chinese evidence even when it contains account terminology', async () => {
     const reason = '简介证据：长期发布市场观点；推文证据：以项目解读和推广为主；粉丝/认证证据：粉丝数较高且未显示官方项目认证；结论：判定为 KOL。';
@@ -50,5 +52,13 @@ describe('AccountScreeningService', () => {
     const reason = '简介证据：正在构建链上交易产品；推文证据：明确说明这不是新股申购研究，而是测试网发布；粉丝/认证证据：未提供；项目类型结论：加密项目。';
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason }))]));
     await expect(service.classify({ ...input, bio: 'Building an onchain testnet product.' })).resolves.toMatchObject({ decision: 'allowed', accountType: 'PROJECT' });
+  });
+  it('augments terse model reasons with auditable profile evidence', async () => {
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '项目账号。' }))]));
+    const result = await service.classify({ ...input, displayName: 'Arc Launch', bio: 'Building an onchain launch layer.', sourceText: 'Testnet is live; points soon.', followerCount: 128, verified: true });
+    expect(result.reason).toContain('简介证据：Building an onchain launch layer.');
+    expect(result.reason).toContain('推文证据：Testnet is live; points soon.');
+    expect(result.reason).toContain('粉丝/认证证据：粉丝数 128，已认证');
+    expect(result.reason).toContain('项目类型结论：项目账号');
   });
 });

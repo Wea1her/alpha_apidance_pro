@@ -18,9 +18,7 @@ const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', '
 
 function hasChinese(value: string): boolean { return /[\u3400-\u9fff]/u.test(value); }
 
-function chineseReason(accountType: AccountType, reason: string): string {
-  if (hasChinese(reason) && reason.trim().length >= 8) return reason.trim();
-  const fallback: Record<AccountType, string> = {
+const FALLBACK_REASON: Record<AccountType, string> = {
     PROJECT: 'AI 判断该账号具有项目官方主体特征。',
     ALPHA: 'AI 判断该账号属于上游 Alpha 数据账号。',
     UNKNOWN: 'AI 暂未确认账号属性，先保留观察。',
@@ -29,9 +27,35 @@ function chineseReason(accountType: AccountType, reason: string): string {
     DEV: 'AI 判断该账号主要是个人开发者账号，缺少独立项目主体特征。',
     MEDIA: 'AI 判断该账号具有媒体或资讯传播属性，不属于项目官方账号。',
     NFT: 'AI 判断该账号主要是 NFT、PFP、收藏品或数字藏品项目，不纳入短期打新项目池。',
-    TRADFI: 'AI 判断该账号属于传统金融、股票、证券或新股申购相关主体，不属于短期加密投机/创业项目。'
-  };
-  return fallback[accountType];
+    TRADFI: 'AI 判断该账号属于传统金融或非加密主体，不属于短期加密投机/创业项目。'
+};
+const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = { PROJECT: '项目账号', ALPHA: 'Alpha 数据账号', UNKNOWN: '账号属性暂不明确', KOL: 'KOL 账号', PERSONAL: '个人账号', DEV: '个人开发者 / Dev 账号', MEDIA: '媒体 / 社媒账号', NFT: 'NFT / PFP / 数字藏品项目', TRADFI: '传统金融 / 非加密主体' };
+
+function clip(value: string, max = 110): string { const normalized = value.replace(/\s+/gu, ' ').trim(); return normalized ? normalized.slice(0, max) : '未提供'; }
+
+/**
+ * Compatible relays occasionally return a one-line verdict even though the
+ * prompt asks for evidence. Keep the model's verdict, but append a compact,
+ * deterministic evidence block so every stored reason is auditable.
+ */
+function detailedChineseReason(input: ScreeningInput, accountType: AccountType, reason: string): string {
+  const base = hasChinese(reason) && reason.trim().length >= 8 ? reason.trim() : FALLBACK_REASON[accountType];
+  const sections: Array<[string, string]> = [
+    ['简介证据', clip(input.bio ?? '')],
+    ['推文证据', clip(input.sourceText ?? '')],
+    ['粉丝/认证证据', `粉丝数 ${input.followerCount == null ? '未提供' : input.followerCount}，${input.verified == null ? '认证状态未提供' : input.verified ? '已认证' : '未认证'}`],
+    ['账号定位证据', `名称 ${clip(input.displayName ?? '', 55)}，账号 @${clip(input.handle, 55).replace(/^@/, '')}`],
+    ['项目类型结论', ACCOUNT_TYPE_LABEL[accountType]]
+  ];
+  const markerCount = sections.filter(([label]) => base.includes(`${label}：`)).length;
+  // Preserve a model explanation that already contains at least three
+  // independent evidence dimensions; only augment terse or one-dimensional
+  // responses that users cannot audit from the project card.
+  if (markerCount >= 3) return base;
+  const missing = sections.filter(([label]) => !base.includes(`${label}：`)).map(([label, value]) => `${label}：${value}`);
+  const compactBase = missing.length ? clip(base, 180) : base;
+  const combined = missing.length ? `${compactBase.replace(/[。；;\s]+$/u, '')}；${missing.join('；')}。` : base;
+  return combined.slice(0, 500);
 }
 
 function normalizeAccountType(value: unknown): AccountType {
@@ -114,13 +138,13 @@ export class AccountScreeningService {
         });
         const output = applyScopeGuard(input, parseModelOutput(result.response.text));
         const blocked = BLOCKED_TYPES.has(output.accountType);
-        return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: chineseReason(output.accountType, output.reason), providerName: result.provider.name, model: result.response.model, attempts };
+        return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: detailedChineseReason(input, output.accountType, output.reason), providerName: result.provider.name, model: result.response.model, attempts };
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
       }
     }
     // 初筛不再阻塞实时信号流等待人工判断：AI 暂时不可用时自动放行到实时信号流，
     // 但保留 UNKNOWN 和失败原因，方便后续自动重跑或在详情中追踪。
-    return { decision: 'allowed', accountType: 'UNKNOWN', reason: 'AI 初筛暂不可用，已自动放行到实时信号流，系统将在后续重新尝试。', attempts };
+    return { decision: 'allowed', accountType: 'UNKNOWN', reason: detailedChineseReason(input, 'UNKNOWN', 'AI 初筛暂不可用，已自动放行到实时信号流，系统将在后续重新尝试。'), attempts };
   }
 }
