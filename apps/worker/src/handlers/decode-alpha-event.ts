@@ -37,7 +37,11 @@ export function createDecodeAlphaEventHandler(database: JobDatabase) {
   return async (job: JobRecord): Promise<void> => {
     const payload = (typeof job.payload === 'string' ? JSON.parse(job.payload) : job.payload) as DecodeAlphaEventPayload;
     if (!payload?.rawEventId || !payload.event) throw new Error('Invalid decode_alpha_event payload');
-    const event = payload.event;
+    const occurredAt = payload.event.occurredAt instanceof Date ? payload.event.occurredAt : new Date(String(payload.event.occurredAt));
+    if (Number.isNaN(occurredAt.getTime())) throw new Error('Invalid Alpha event occurredAt');
+    // Jobs are persisted as JSON, so Date values arrive here as ISO strings.
+    // Normalize once before star/surge calculations and outbox serialization.
+    const event = { ...payload.event, occurredAt };
 
     if (!event.xUserId || event.type === 'heartbeat' || event.type === 'unknown') {
       await database.query('update raw_events set decode_status = $2 where id = $1', [payload.rawEventId, event.type === 'unknown' ? 'unsupported' : 'decoded']);

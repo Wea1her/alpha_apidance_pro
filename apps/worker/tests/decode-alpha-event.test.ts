@@ -15,7 +15,7 @@ describe('decode-alpha-event realtime notifications', () => {
       id: 'job-realtime', type: 'decode_alpha_event', priority: 1, status: 'running', idempotencyKey: 'decode:realtime',
       payload: { rawEventId: raw.rows[0].id, event: {
         type: 'common_follow', externalId: 'evt-realtime', xUserId: '99', handle: 'fiatphobia', avatarUrl: 'https://pbs.twimg.com/profile_images/example.jpg', commonFollowCount: 12,
-        occurredAt: new Date('2026-08-27T03:00:00Z'), content: '你关注的 12 个用户也关注了ta', payload: { follow_user: { id_str: '99', screen_name: 'fiatphobia', name: 'fiatphobiaX' } }
+        occurredAt: '2026-08-27T03:00:00Z' as unknown as Date, content: '你关注的 12 个用户也关注了ta', payload: { follow_user: { id_str: '99', screen_name: 'fiatphobia', name: 'fiatphobiaX' } }
       } }
     });
     const events = await database.query<{ type: string; aggregate_type: string; aggregate_id: string }>('select type, aggregate_type, aggregate_id from outbox_events');
