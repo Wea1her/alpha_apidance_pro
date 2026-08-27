@@ -58,14 +58,14 @@ function normalizedEvidence(value: unknown, evidenceIds: readonly string[]) {
 function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly string[], fallbackProject?: ProjectRow) {
   const projectValue = first(raw, ['project', 'coreInfo', 'project_info', '项目核心信息', '核心信息']);
   const project = typeof projectValue === 'string' ? {} : record(projectValue);
-  const focus = record(first(raw, ['focusReason', 'key_focus', 'focus_reason', '关注理由', '重点关注理由']));
-  const review = record(first(raw, ['independentReview', 'independent_review', '独立复核轮', '独立复核', '证伪检查']));
+  const focus = record(first(raw, ['focusReason', 'key_focus', 'focus_reason', 'focus', '关注理由', '重点关注理由']));
+  const review = record(first(raw, ['independentReview', 'independent_review', 'review', '独立复核轮', '独立复核', '证伪检查']));
   const scores = record(first(raw, ['score', 'scores', '评分总览', '评分']));
-  const trackValue = first(raw, ['l2Tracks', 'six_tracks', '六赛道', 'L2六赛道', 'L2 六赛道深挖', '赛道']);
+  const trackValue = first(raw, ['l2Tracks', 'six_tracks', 'lanes', '六赛道', 'L2六赛道', 'L2 六赛道深挖', '赛道']);
   const rawTracks = Array.isArray(trackValue)
     ? trackValue
     : Object.entries(record(trackValue)).map(([key, value]) => ({ key, ...record(value) }));
-  const globalEvidence = strings(first(raw, ['evidence_ids', 'evidenceIds', '证据ID', '证据编号'])).flatMap((item) => normalizedEvidence(item, evidenceIds));
+  const globalEvidence = strings(first(raw, ['evidence_ids', 'evidenceIds', 'evidence', '证据ID', '证据编号'])).flatMap((item) => normalizedEvidence(item, evidenceIds));
   const tracks = TRACK_KEYS.map((key) => {
     const source = rawTracks.map(record).find((item) => trackKey(first(item, ['key', 'track', 'title', 'name', '赛道', '名称'])) === key) ?? {};
     const evidenceValue = first(source, ['evidence', '证据', 'evidence_chain', '证据链']);
