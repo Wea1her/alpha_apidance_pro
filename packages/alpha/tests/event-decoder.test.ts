@@ -21,7 +21,7 @@ describe('AlphaEventDecoder', () => {
       commonFollowCount: 12,
       xPostUrl: 'https://x.com/project_alpha'
     });
-    expect(buildAlphaDedupeKey(event)).toBe('alpha:evt-1');
+    expect(buildAlphaDedupeKey(event)).toBe('alpha:common_follow:evt-1:12345');
   });
 
   it('marks a post containing a contract address as a CA signal', () => {
@@ -69,6 +69,12 @@ describe('AlphaEventDecoder', () => {
     const second = decodeAlphaWebhook({ ...payload });
 
     expect(buildAlphaDedupeKey(first)).toBe(buildAlphaDedupeKey(second));
+  });
+
+  it('does not collide when a reused upstream id points to different projects', () => {
+    const first = decodeAlphaWebhook({ id: 'trigger-user', type: 'follow', user_id: 'project-a', content: '你关注的 8 个用户也关注了ta' });
+    const second = decodeAlphaWebhook({ id: 'trigger-user', type: 'follow', user_id: 'project-b', content: '你关注的 8 个用户也关注了ta' });
+    expect(buildAlphaDedupeKey(first)).not.toBe(buildAlphaDedupeKey(second));
   });
 
   it('decodes nested Alpha tweet payloads into historical tweet signals', () => {

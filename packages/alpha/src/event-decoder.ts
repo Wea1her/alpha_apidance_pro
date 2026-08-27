@@ -160,7 +160,11 @@ export function decodeAlphaWebhook(input: unknown): DecodedAlphaEvent {
 }
 
 export function buildAlphaDedupeKey(event: DecodedAlphaEvent): string {
-  if (event.externalId) return `alpha:${event.externalId}`;
+  // Alpha payloads from some Hook versions reuse a root `id` for the
+  // triggering user. Including the normalized project identity prevents one
+  // user's several followed projects from colliding and being silently
+  // dropped, while still deduplicating the same event arriving via Hook/WS.
+  if (event.externalId) return `alpha:${event.type}:${event.externalId}:${event.xUserId ?? event.handle ?? event.xPostUrl ?? ''}`;
   const stable = canonicalize({
     type: event.type,
     xUserId: event.xUserId,
