@@ -1,4 +1,4 @@
-import { JobStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
+import { JobStore, OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
 import { starForCommonFollowCount } from '@alpha-research/domain';
 import type { DecodedAlphaEvent } from '@alpha-research/alpha';
 import { ensureTrenchMonitoring } from '../trench.js';
@@ -73,12 +73,25 @@ export function createDecodeAlphaEventHandler(database: JobDatabase) {
         [projectId, handle, name || null, event.occurredAt]
       );
     }
-    await database.query(
+    const signalResult = await database.query<{ id: string }>(
       `insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, common_follow_count, x_post_url, content, data)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-       on conflict (raw_event_id, type) do nothing`,
+       on conflict (raw_event_id, type) do nothing returning id`,
       [payload.rawEventId, projectId, event.xUserId, event.type, event.occurredAt, event.commonFollowCount ?? null, event.xPostUrl ?? null, event.content ?? null, JSON.stringify(event.payload)]
     );
+    const signalId = signalResult.rows[0]?.id ?? (await database.query<{ id: string }>(
+      'select id from signals where raw_event_id = $1 and type = $2 limit 1',
+      [payload.rawEventId, event.type]
+    )).rows[0]?.id;
+    if (!signalId) throw new Error(`Signal insert returned no id for ${payload.rawEventId}`);
+    await new OutboxStore(database).append({
+      type: 'signal.created',
+      aggregateType: 'project',
+      aggregateId: projectId,
+      version: 1,
+      payload: { projectId, signalId, signalType: event.type, occurredAt: event.occurredAt.toISOString() },
+      idempotencyKey: `signal:${signalId}:website`
+    });
 
     const screening = await database.query<{ id: string; decision: string }>(
       `select id, decision from screening_decisions where project_id = $1 order by created_at desc limit 1`,

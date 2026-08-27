@@ -1,5 +1,5 @@
 import { AccountScreeningService, type ScreeningInput } from '@alpha-research/ai';
-import { JobStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
+import { JobStore, OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
 import { ensureTrenchMonitoring } from '../trench.js';
 
 export interface ScreenAccountPayload { projectId: string; input: ScreeningInput; }
@@ -11,11 +11,17 @@ export function createScreenAccountHandler(database: JobDatabase, screening: Acc
     const payload = rawPayload as ScreenAccountPayload;
     if (!payload?.projectId || !payload.input?.xUserId) throw new Error('Invalid screen_account payload');
     const result = await screening.classify(payload.input);
-    await database.query(
+    const decisionResult = await database.query<{ id: string }>(
       `insert into screening_decisions (project_id, decision, account_type, reason)
-       values ($1, $2, $3, $4)`,
+       values ($1, $2, $3, $4) returning id`,
       [payload.projectId, result.decision === 'pending_review' ? 'failed' : result.decision, result.accountType, result.reason]
     );
+    const decisionId = decisionResult.rows[0]?.id;
+    if (decisionId) await new OutboxStore(database).append({
+      type: 'screening.completed', aggregateType: 'project', aggregateId: payload.projectId, version: 1,
+      payload: { projectId: payload.projectId, decision: result.decision, accountType: result.accountType },
+      idempotencyKey: `screening:${decisionId}:website`
+    });
     if (result.decision === 'allowed') {
       const project = await database.query<{ highest_star: number; x_user_id: string; status: string }>('select highest_star, x_user_id, status from projects where id = $1', [payload.projectId]);
       const row = project.rows[0];

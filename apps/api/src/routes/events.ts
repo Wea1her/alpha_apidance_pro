@@ -13,7 +13,15 @@ export function registerEventRoute(app: FastifyInstance, options: EventRoutesOpt
       connection: 'keep-alive',
       'x-accel-buffering': 'no'
     });
-    let lastEventId = request.headers['last-event-id'] ?? '00000000-0000-0000-0000-000000000000';
+    const rawCursor = request.headers['last-event-id'];
+    let cursorCreatedAt = new Date(0).toISOString();
+    let cursorId = '00000000-0000-0000-0000-000000000000';
+    if (typeof rawCursor === 'string' && rawCursor.includes('|')) {
+      const separator = rawCursor.indexOf('|');
+      const parsedDate = new Date(rawCursor.slice(0, separator));
+      if (!Number.isNaN(parsedDate.getTime())) cursorCreatedAt = parsedDate.toISOString();
+      cursorId = rawCursor.slice(separator + 1) || cursorId;
+    }
     let active = true;
     const startedAt = Date.now();
     request.raw.on('close', () => { active = false; });
@@ -22,18 +30,24 @@ export function registerEventRoute(app: FastifyInstance, options: EventRoutesOpt
         response.end();
         return;
       }
-      const rows = await options.database.query<{ id: string; type: string; aggregate_type: string; aggregate_id: string; version: number }>(
-        `select id, type, aggregate_type, aggregate_id, version
-         from outbox_events where id > $1 order by created_at asc, id asc limit 50`,
-        [lastEventId]
+      const rows = await options.database.query<{ id: string; type: string; aggregate_type: string; aggregate_id: string; version: number; created_at: string }>(
+        `select id, type, aggregate_type, aggregate_id, version, created_at
+         from outbox_events
+         where (created_at, id) > ($1::timestamptz, $2::uuid)
+         order by created_at asc, id asc limit 50`,
+        [cursorCreatedAt, cursorId]
       );
       for (const row of rows.rows) {
-        response.write(`id: ${row.id}\nevent: ${row.type}\ndata: ${JSON.stringify({ aggregateType: row.aggregate_type, aggregateId: row.aggregate_id, version: row.version })}\n\n`);
-        lastEventId = row.id;
+        const eventCursor = `${new Date(row.created_at).toISOString()}|${row.id}`;
+        // Keep the default "message" event so the browser's onmessage handler
+        // receives every domain event without needing one listener per type.
+        response.write(`id: ${eventCursor}\ndata: ${JSON.stringify({ type: row.type, aggregateType: row.aggregate_type, aggregateId: row.aggregate_id, version: row.version })}\n\n`);
+        cursorCreatedAt = new Date(row.created_at).toISOString();
+        cursorId = row.id;
       }
       if (active) {
         response.write(': keep-alive\n\n');
-        setTimeout(tick, options.pollMs ?? 3000);
+        setTimeout(tick, options.pollMs ?? 1000);
       }
     };
     await tick();

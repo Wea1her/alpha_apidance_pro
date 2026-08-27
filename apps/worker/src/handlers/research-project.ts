@@ -6,7 +6,7 @@ import {
   ReportDocumentSchema,
   validateEvidenceReferences
 } from '@alpha-research/ai';
-import type { JobDatabase, JobRecord } from '@alpha-research/db';
+import { OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
 
 interface ResearchProjectPayload { projectId: string; }
 interface ProjectRow { id: string; current_handle: string; display_name: string; status: string; }
@@ -255,11 +255,21 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
          where id = $1`,
         [version.id, JSON.stringify(citedReport), markdown, JSON.stringify({ provider: completion.provider.name, model: completion.response.model, xSearchCitations: citationEvidence.length })]
       );
+      await new OutboxStore(database).append({
+        type: 'report.ready', aggregateType: 'project', aggregateId: projectId, version: version.version,
+        payload: { projectId, reportVersionId: version.id, version: version.version },
+        idempotencyKey: `report:${version.id}:ready`
+      });
     } catch (error) {
       await database.query(
         `update report_versions set status = 'failed', change_summary = $2::jsonb, completed_at = now() where id = $1`,
         [version.id, JSON.stringify({ error: error instanceof Error ? error.message : String(error) })]
       );
+      await new OutboxStore(database).append({
+        type: 'report.failed', aggregateType: 'project', aggregateId: projectId, version: version.version,
+        payload: { projectId, reportVersionId: version.id, version: version.version },
+        idempotencyKey: `report:${version.id}:failed`
+      });
       throw error;
     }
   };
