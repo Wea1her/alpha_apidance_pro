@@ -38,7 +38,7 @@ function chineseReportAdapter(): AiProviderAdapter {
     complete: async () => ({
       model: 'research',
       text: JSON.stringify({
-        项目核心信息: { 项目: 'Alpha Project', 账号: '@alpha', 当前阶段: '公开建设中', 项目摘要: '有可验证产品。' },
+        项目核心信息: { 项目: 'Alpha Project', 账号: '@alpha', 当前阶段: '公开建设中', 项目摘要: '暂未确认' },
         关注理由: { 当前进展: '已发布产品演示', 优点: ['有可验证产品'], 缺点: ['用户规模未知'], 综合判断: '观点：值得持续跟踪产品进展' },
         标签: ['基础设施'], 核心论点: ['产品留存将验证叙事'], 参与玩法: ['关注测试网任务'],
         六赛道: trackKeys.map((key) => ({ key, 评分: 6, 总结: '阶段性判断。', 发现: ['需要继续验证。'] })),
@@ -109,7 +109,7 @@ describe('research-project handler', () => {
     await createResearchProjectHandler(database, new AiProviderRouter([chineseReportAdapter()]))({ id: 'job-cn', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:44', payload: { projectId: project.rows[0].id } });
     const result = await database.query<{ rendered_markdown: string }>('select rendered_markdown from report_versions');
     expect(result.rows[0]?.rendered_markdown).toContain('观点：值得持续跟踪产品进展');
-    expect(result.rows[0]?.rendered_markdown).not.toContain('产品留存将验证叙事');
+    expect(result.rows[0]?.rendered_markdown).toContain('产品留存将验证叙事');
     expect(result.rows[0]?.rendered_markdown).not.toContain('关注测试网任务');
     expect(result.rows[0]?.rendered_markdown).not.toContain('L2 六赛道深挖');
     expect(result.rows[0]?.rendered_markdown).not.toContain('评分总览');
