@@ -10,6 +10,8 @@ describe('research report document', () => {
     const prompt = buildResearchReportPrompt({ project: { name: 'Northstar', handle: '@northstar' }, signals: ['Alpha 共同关注 12'], evidence: [evidenceId] });
     expect(prompt.user).toContain('产品与需求');
     expect(prompt.user).toContain('独立复核轮');
+    expect(prompt.user).toContain('至少 2-4 个完整句子');
+    expect(prompt.user).toContain('不要单独输出或猜测背书账号');
     expect(prompt.system).toContain('ReportDocumentSchema');
     expect(prompt.system).toContain('JSON 键名必须严格使用 Schema 定义的英文键名');
   });
@@ -18,7 +20,7 @@ describe('research report document', () => {
     expect(() => validateEvidenceReferences(parsed, new Set([evidenceId]))).not.toThrow();
     const markdown = renderReportMarkdown(parsed, new Date('2026-08-26T00:00:00Z'));
     expect(markdown).toContain('# Northstar｜AI 调研报告');
-    expect(markdown).toContain('## 二、项目背景/背书账号');
+    expect(markdown).toContain('## 二、项目背景');
     expect(markdown).toContain('## 六、关注理由');
     expect(markdown).not.toContain('## 八、核心论点');
     expect(markdown).not.toContain('## 九、参与玩法');

@@ -16,7 +16,7 @@ export function renderReportMarkdown(report: ReportDocument, generatedAt = new D
     '',
     report.coreInfo.summary,
     '',
-    '## 二、项目背景/背书账号',
+    '## 二、项目背景',
     '',
     report.coreInfo.background || '当前无法确认知名 Crypto 背书账号或机构背景。',
     '',
