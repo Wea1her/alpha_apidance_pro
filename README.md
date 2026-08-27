@@ -2,6 +2,28 @@
 
 这是一个长期运行的后端监听服务。服务会使用白名单钱包登录 `alpha.apidance.pro`，连接 Alpha 用户 WebSocket，把上游推送里的共同关注数据转化为 Telegram 频道消息，并在关联讨论群中生成 Grok 投研分析。
 
+## 新版私人投研工作台（正在切换）
+
+新版在同一仓库中提供全 TypeScript 的 Web/API/Worker 单仓库：
+
+- `apps/web`：实时信号流工作台，支持三星、飙升、CA、待确认筛选；报告按文档阅读，不展示模型 JSON。
+- `apps/api`：访问密钥会话、Alpha Hook 入站、项目查询和 SSE；Hook 只在持久化成功后返回，不等待 AI 或 Telegram。
+- `packages/alpha`：Hook 解码、跨 Hook/WS 去重和原始事件入库适配器。
+- `packages/domain`：项目身份、星级只升不降、三星战壕和飙升规则。
+- `packages/db`：PostgreSQL 迁移、任务队列和事务发件箱。
+
+新版本地启动（需要 PostgreSQL）：
+
+```bash
+npm run db:migrate
+npm run api
+npm run web
+```
+
+API 启动前至少设置 `DATABASE_URL`、`ACCESS_KEY_HASH`（Argon2 哈希）、`ALPHA_HOOK_SECRET` 和 `APP_ORIGIN`。生产部署应由 Caddy/Nginx 终止 HTTPS；Alpha Hook 地址形如 `/webhooks/alpha/<secret>`。
+
+当前旧 WebSocket → Telegram 入口仍保留，作为七天影子验证和回滚路径；通过切换验收后再移除旧的 6551、删帖历史和全量 Telegram 依赖。
+
 当前服务不调用 `commonfollow` 接口，数据来源是 Alpha WebSocket 推送内容，因此不会受到 `commonfollow` 接口速率限制影响。
 
 ## 核心能力

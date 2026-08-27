@@ -1,0 +1,35 @@
+import { describe, expect, it } from 'vitest';
+import { AccountScreeningService } from '../src/screening/account-screening.js';
+import { AiProviderRouter } from '../src/provider-router.js';
+import type { AiProviderAdapter } from '../src/provider.js';
+
+function adapter(text: string): AiProviderAdapter {
+  return { profile: { id: 'p', name: 'screening', baseUrl: 'https://ai.test', screeningModel: 'screen-v1', researchModel: 'research-v1', capabilities: ['chat', 'structured_output'], role: 'main', enabled: true, health: 'healthy' }, complete: async () => ({ text, model: 'screen-v1' }), healthCheck: async () => 'healthy' };
+}
+describe('AccountScreeningService', () => {
+  const input = { xUserId: '42', handle: 'alpha', displayName: 'Alpha', bio: 'test' };
+  it.each([
+    ['KOL', 'blocked'], ['PERSONAL', 'blocked'], ['DEV', 'blocked'], ['MEDIA', 'blocked'], ['PROJECT', 'allowed'], ['ALPHA', 'allowed'], ['UNKNOWN', 'allowed']
+  ] as const)('classifies %s as %s', async (accountType, decision) => {
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType, reason: '分类理由' }))]));
+    await expect(service.classify(input)).resolves.toMatchObject({ accountType, decision });
+  });
+  it('automatically allows invalid output after retries without manual review', async () => {
+    const service = new AccountScreeningService(new AiProviderRouter([adapter('not-json')]), 2);
+    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'allowed', accountType: 'UNKNOWN', attempts: 2 });
+  });
+  it('accepts fenced JSON and Chinese account labels from compatible providers', async () => {
+    const service = new AccountScreeningService(new AiProviderRouter([adapter('```json\n{"account_type":"媒体","explanation":"资讯媒体账号"}\n```')]));
+    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'MEDIA', reason: 'AI 判断该账号具有媒体或资讯传播属性，不属于项目官方账号。' });
+  });
+  it('keeps detailed Chinese evidence even when it contains account terminology', async () => {
+    const reason = '简介证据：长期发布市场观点；推文证据：以项目解读和推广为主；粉丝/认证证据：粉丝数较高且未显示官方项目认证；结论：判定为 KOL。';
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'KOL', reason }))]));
+    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', reason });
+  });
+  it('infers a blocked account type when the model only states it in the reason', async () => {
+    const reason = '简介证据：个人宣言；推文证据：持续发布交易观点；粉丝/认证证据：粉丝数较高但无官方认证；结论：该账号为个人账号，应过滤。';
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ reason }))]));
+    await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'PERSONAL' });
+  });
+});

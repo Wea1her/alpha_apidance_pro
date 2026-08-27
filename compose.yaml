@@ -1,0 +1,113 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-alpha_research}
+      POSTGRES_USER: ${POSTGRES_USER:-alpha}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - alpha-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [alpha]
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: ["node", "--import", "tsx", "apps/api/src/main.ts"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgres://${POSTGRES_USER:-alpha}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alpha_research}
+      ACCESS_KEY_HASH: ${ACCESS_KEY_HASH:?ACCESS_KEY_HASH is required}
+      ALPHA_HOOK_SECRET: ${ALPHA_HOOK_SECRET:?ALPHA_HOOK_SECRET is required}
+      APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN is required}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports: ["3000:3000"]
+    networks: [alpha]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["node", "--import", "tsx", "apps/worker/src/main.ts"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgres://${POSTGRES_USER:-alpha}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alpha_research}
+      WORKER_ID: ${INGEST_WORKER_ID:-alpha-ingest-worker-1}
+      WORKER_JOB_TYPES: ${INGEST_WORKER_JOB_TYPES:-decode_alpha_event}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_PROVIDER_NAME: ${AI_PROVIDER_NAME:-fengshao-grok}
+      AI_SCREENING_MODEL: ${AI_SCREENING_MODEL:-grok-4.3}
+      AI_RESEARCH_MODEL: ${AI_RESEARCH_MODEL:-grok-4.3}
+      AI_X_SEARCH: ${AI_X_SEARCH:-true}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [alpha]
+
+  screen-worker:
+    build: .
+    restart: unless-stopped
+    command: ["node", "--import", "tsx", "apps/worker/src/main.ts"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgres://${POSTGRES_USER:-alpha}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alpha_research}
+      WORKER_ID: ${SCREEN_WORKER_ID:-alpha-screen-worker-1}
+      WORKER_JOB_TYPES: ${SCREEN_WORKER_JOB_TYPES:-screen_account}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_PROVIDER_NAME: ${AI_PROVIDER_NAME:-fengshao-grok}
+      AI_SCREENING_MODEL: ${AI_SCREENING_MODEL:-grok-4.3}
+      AI_RESEARCH_MODEL: ${AI_RESEARCH_MODEL:-grok-4.3}
+      AI_X_SEARCH: ${AI_X_SEARCH:-true}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-90000}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-6000}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [alpha]
+
+  research-worker:
+    build: .
+    restart: unless-stopped
+    command: ["node", "--import", "tsx", "apps/worker/src/main.ts"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgres://${POSTGRES_USER:-alpha}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-alpha_research}
+      WORKER_ID: ${RESEARCH_WORKER_ID:-alpha-research-worker-1}
+      WORKER_JOB_TYPES: research_project
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_PROVIDER_NAME: ${AI_PROVIDER_NAME:-fengshao-grok}
+      AI_SCREENING_MODEL: ${AI_SCREENING_MODEL:-grok-4.3}
+      AI_RESEARCH_MODEL: ${AI_RESEARCH_MODEL:-grok-4.3}
+      AI_X_SEARCH: ${AI_X_SEARCH:-true}
+      AI_RESEARCH_FALLBACK_MODEL: ${AI_RESEARCH_FALLBACK_MODEL:-grok-4.20-multi-agent-0309}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-180000}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-6000}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [alpha]
+
+  web:
+    build: .
+    restart: unless-stopped
+    command: ["npm", "run", "preview", "--workspace", "@alpha-research/web"]
+    environment:
+      WEB_API_TARGET: http://api:3000
+    depends_on: [api]
+    ports: ["${WEB_PORT:-4173}:4173"]
+    networks: [alpha]
+
+volumes:
+  alpha-postgres:
+
+networks:
+  alpha:
+    driver: bridge

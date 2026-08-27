@@ -3,12 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "scripts/*"
+  ],
   "scripts": {
     "alpha:ws": "tsx src/alpha-ws-test.ts",
     "start": "tsx src/main.ts",
+    "api": "npm run dev --workspace @alpha-research/api",
+    "worker": "npm run dev --workspace @alpha-research/worker",
+    "web": "npm run dev --workspace @alpha-research/web",
+    "build": "npm run build --workspaces --if-present",
+    "db:migrate": "npm run migrate --workspace @alpha-research/db",
     "telegram:updates": "tsx src/telegram-updates-cli.ts",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "test": "npm run test:legacy && npm run test --workspaces --if-present",
+    "test:legacy": "vitest run",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
