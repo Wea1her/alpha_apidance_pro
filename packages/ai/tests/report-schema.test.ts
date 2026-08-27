@@ -18,9 +18,11 @@ describe('research report document', () => {
     expect(() => validateEvidenceReferences(parsed, new Set([evidenceId]))).not.toThrow();
     const markdown = renderReportMarkdown(parsed, new Date('2026-08-26T00:00:00Z'));
     expect(markdown).toContain('# Northstar｜AI 调研报告');
-    expect(markdown).toContain('## 九、风险与证据链');
-    expect(markdown).toContain('## 六、L2 六赛道深挖');
-    expect(markdown).toContain('## 七、独立复核轮：证伪检查');
+    expect(markdown).toContain('## 二、项目背景/背书账号');
+    expect(markdown).toContain('## 六、关注理由');
+    expect(markdown).toContain('## 十、L2 六赛道深挖');
+    expect(markdown).toContain('## 十一、独立复核轮：证伪检查');
+    expect(markdown).toContain('## 十三、风险与证据链');
     expect(markdown).toContain('总分：60.0 / 100');
     expect(markdown).not.toContain('"coreInfo"');
   });

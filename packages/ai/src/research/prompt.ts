@@ -24,6 +24,15 @@ export function buildResearchReportPrompt(input: ResearchPromptInput): { system:
     `阶段：${input.project.stage ?? '暂未确认'}`,
     `摘要：${input.project.summary ?? '暂未确认'}`,
     '',
+    '请先按以下 1-7 结构输出完整中文投研内容，再补充 L2 六赛道、独立复核、评分与风险证据链：',
+    '1. 项目核心信息：说明账号对应的项目、核心定位、产品叙事与关键公开资料。',
+    '2. 项目背景/背书账号：明确列出可验证的项目方、协议、交易所、VC、生态官方或 Crypto KOL 关注；没有就说明无法确认及原因。',
+    '3. 当前进展：结合账号简介、近期推文、粉丝数、互动数据、共同关注人数、Alpha 星级和事件记录，给出具体时间与证据，查询失败要明确说明。',
+    '4. 优点：说明叙事、产品、生态或早期机会的具体优势。',
+    '5. 缺点：说明信息缺口、执行、流动性、竞争和数据限制。',
+    '6. 关注理由：从交易/投研角度给出是否值得跟踪、试错仓位和升级观察条件。',
+    '7. 标签：输出 3-8 个中文标签。',
+    '',
     '请完成 L2 六赛道深挖：',
     tracks,
     '',
@@ -36,7 +45,7 @@ export function buildResearchReportPrompt(input: ResearchPromptInput): { system:
     `\n可用 Evidence：\n${input.evidence.length ? input.evidence.map((item) => `- ${item}`).join('\n') : '- 暂无'}`,
     `\n联网搜索结果（仅作为公开资料线索，必须结合 Evidence 谨慎判断）：\n${input.webSearch?.length ? input.webSearch.map((item) => `- ${item}`).join('\n') : '- 未找到公开搜索结果，请明确标注“暂无公开资料”'}`
   ].join('\n');
-  return { system: '你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook、l2Tracks、independentReview、score、risksEvidence），中文只写在字段值中，不要把章节标题当作 JSON 键名。必须完成六赛道深挖和独立复核轮证伪。', user };
+  return { system: '你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook、l2Tracks、independentReview、score、risksEvidence）；coreInfo.background 用于第 2 节项目背景/背书账号，必须写出具体可验证结果或明确说明无法确认及查询限制。中文只写在字段值中，不要把章节标题当作 JSON 键名。必须完成 1-7 节中文分析、六赛道深挖和独立复核轮证伪。', user };
 }
 
 export type ResearchReportDocument = ReportDocument;
