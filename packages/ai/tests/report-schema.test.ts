@@ -11,6 +11,7 @@ describe('research report document', () => {
     expect(prompt.user).toContain('产品与需求');
     expect(prompt.user).toContain('独立复核轮');
     expect(prompt.system).toContain('ReportDocumentSchema');
+    expect(prompt.system).toContain('JSON 键名必须严格使用 Schema 定义的英文键名');
   });
   it('validates evidence ids and renders a readable Chinese document', () => {
     const parsed = ReportDocumentSchema.parse(report);

@@ -32,6 +32,24 @@ function adapter(calls: { count: number }, suffix = ''): AiProviderAdapter {
   };
 }
 
+function chineseReportAdapter(): AiProviderAdapter {
+  return {
+    profile: { id: 'cn', name: 'chinese-fields', baseUrl: 'https://ai.test', screeningModel: 'screen', researchModel: 'research', capabilities: ['chat', 'structured_output'], role: 'main', enabled: true, health: 'healthy' },
+    complete: async () => ({
+      model: 'research',
+      text: JSON.stringify({
+        项目核心信息: { 项目: 'Alpha Project', 账号: '@alpha', 当前阶段: '公开建设中', 项目摘要: '有可验证产品。' },
+        关注理由: { 当前进展: '已发布产品演示', 优点: ['有可验证产品'], 缺点: ['用户规模未知'], 综合判断: '观点：值得持续跟踪产品进展' },
+        标签: ['基础设施'], 核心论点: ['产品留存将验证叙事'], 参与玩法: ['关注测试网任务'],
+        六赛道: trackKeys.map((key) => ({ key, 评分: 6, 总结: '阶段性判断。', 发现: ['需要继续验证。'] })),
+        独立复核轮: { 状态: 'challenged', 假设: ['项目会持续交付。'], 证伪检查项: ['检查后续版本。'], 反证: [], 结论: '暂未证伪。' },
+        评分总览: { 总分: 60, 置信度: 0.5, 判断: '持续观察' }, 风险与证据链: []
+      })
+    }),
+    healthCheck: async () => 'healthy'
+  };
+}
+
 describe('research-project handler', () => {
   const databases: PGlite[] = [];
   afterEach(async () => { await Promise.all(databases.splice(0).map((db) => db.close())); });
@@ -59,5 +77,20 @@ describe('research-project handler', () => {
     expect(calls.count).toBe(0);
     const versions = await database.query<{ count: string }>('select count(*)::text as count from report_versions');
     expect(versions.rows[0]?.count).toBe('0');
+  });
+
+  it('maps Chinese report fields instead of silently using placeholders', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('44', 'alpha', 'Alpha Project') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    await database.query(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'cn-raw', '{}'::jsonb, 'decoded')`);
+    const raw = await database.query<{ id: string }>('select id from raw_events limit 1');
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, '44', 'common_follow', now(), '共同关注 20 人', '{}'::jsonb)`, [raw.rows[0].id, project.rows[0].id]);
+    await createResearchProjectHandler(database, new AiProviderRouter([chineseReportAdapter()]))({ id: 'job-cn', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:44', payload: { projectId: project.rows[0].id } });
+    const result = await database.query<{ rendered_markdown: string }>('select rendered_markdown from report_versions');
+    expect(result.rows[0]?.rendered_markdown).toContain('观点：值得持续跟踪产品进展');
+    expect(result.rows[0]?.rendered_markdown).toContain('产品留存将验证叙事');
+    expect(result.rows[0]?.rendered_markdown).toContain('关注测试网任务');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('后续公开进展是关键验证点。');
   });
 });

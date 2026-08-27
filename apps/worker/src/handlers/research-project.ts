@@ -29,7 +29,16 @@ const TRACK_TITLES: Record<(typeof TRACK_KEYS)[number], string> = {
 
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function text(value: unknown, fallback = ''): string { return typeof value === 'string' && value.trim() ? value.trim() : fallback; }
-function strings(value: unknown): string[] { return Array.isArray(value) ? value.map((item) => text(item)).filter(Boolean) : []; }
+function first(value: unknown, keys: readonly string[]): unknown {
+  const object = record(value);
+  for (const key of keys) if (object[key] !== undefined && object[key] !== null) return object[key];
+  return undefined;
+}
+function strings(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => text(item)).filter(Boolean);
+  const single = text(value);
+  return single ? [single] : [];
+}
 function trackKey(value: unknown): (typeof TRACK_KEYS)[number] | null {
   const normalized = text(value).toLowerCase();
   if (TRACK_KEYS.includes(normalized as (typeof TRACK_KEYS)[number])) return normalized as (typeof TRACK_KEYS)[number];
@@ -46,33 +55,38 @@ function normalizedEvidence(value: unknown, evidenceIds: readonly string[]) {
 }
 
 function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly string[], fallbackProject?: ProjectRow) {
-  const project = record(raw.project ?? raw.coreInfo);
-  const focus = record(raw.focusReason ?? raw.key_focus);
-  const review = record(raw.independentReview ?? raw.independent_review);
-  const scores = record(raw.score ?? raw.scores);
-  const rawTracks = Array.isArray(raw.l2Tracks)
-    ? raw.l2Tracks
-    : Array.isArray(raw.six_tracks)
-      ? raw.six_tracks
-      : Object.entries(record(raw.six_tracks)).map(([key, value]) => ({ key, ...record(value) }));
-  const globalEvidence = strings(raw.evidence_ids ?? raw.evidenceIds).flatMap((item) => normalizedEvidence(item, evidenceIds));
+  const projectValue = first(raw, ['project', 'coreInfo', 'project_info', '项目核心信息', '核心信息']);
+  const project = typeof projectValue === 'string' ? {} : record(projectValue);
+  const focus = record(first(raw, ['focusReason', 'key_focus', 'focus_reason', '关注理由', '重点关注理由']));
+  const review = record(first(raw, ['independentReview', 'independent_review', '独立复核轮', '独立复核', '证伪检查']));
+  const scores = record(first(raw, ['score', 'scores', '评分总览', '评分']));
+  const trackValue = first(raw, ['l2Tracks', 'six_tracks', '六赛道', 'L2六赛道', 'L2 六赛道深挖', '赛道']);
+  const rawTracks = Array.isArray(trackValue)
+    ? trackValue
+    : Object.entries(record(trackValue)).map(([key, value]) => ({ key, ...record(value) }));
+  const globalEvidence = strings(first(raw, ['evidence_ids', 'evidenceIds', '证据ID', '证据编号'])).flatMap((item) => normalizedEvidence(item, evidenceIds));
   const tracks = TRACK_KEYS.map((key) => {
-    const source = rawTracks.map(record).find((item) => trackKey(item.key ?? item.track ?? item.title ?? item.name) === key) ?? {};
-    const evidence = Array.isArray(source.evidence) ? source.evidence.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
-    const findings = strings(source.findings ?? source.key_findings ?? source.points ?? source.analysis);
-    return { key, title: TRACK_TITLES[key], score: Math.max(0, Math.min(10, Number(source.score ?? source.rating ?? 0) || 0)), summary: text(source.summary ?? source.assessment ?? source.conclusion, '暂未确认。'), findings: findings.slice(0, 8).concat(findings.length ? [] : ['暂无可核验结论。']), evidence };
+    const source = rawTracks.map(record).find((item) => trackKey(first(item, ['key', 'track', 'title', 'name', '赛道', '名称'])) === key) ?? {};
+    const evidenceValue = first(source, ['evidence', '证据', 'evidence_chain', '证据链']);
+    const evidence = Array.isArray(evidenceValue) ? evidenceValue.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
+    const findings = strings(first(source, ['findings', 'key_findings', 'points', 'analysis', '发现', '要点', '关键发现']));
+    return { key, title: TRACK_TITLES[key], score: Math.max(0, Math.min(10, Number(first(source, ['score', 'rating', '评分'])) || 0)), summary: text(first(source, ['summary', 'assessment', 'conclusion', '总结', '判断', '结论', '分析']), '暂未确认。'), findings: findings.slice(0, 8).concat(findings.length ? [] : ['暂无可核验结论。']), evidence };
   });
-  const reviewEvidence = Array.isArray(review.evidence) ? review.evidence.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
-  const riskItems = Array.isArray(raw.risksEvidence) ? raw.risksEvidence : Array.isArray(raw.not_include) ? raw.not_include : [];
+  const reviewEvidenceValue = first(review, ['evidence', '证据', '证据链']);
+  const reviewEvidence = Array.isArray(reviewEvidenceValue) ? reviewEvidenceValue.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
+  const riskValue = first(raw, ['risksEvidence', 'not_include', '风险与证据链', '风险证据']);
+  const riskItems = Array.isArray(riskValue) ? riskValue : [];
+  const monitorValue = first(raw, ['monitor', '监控']);
+  const playbookValue = first(raw, ['playbook', '参与玩法', '玩法', '参与方式']) ?? first(record(monitorValue), ['steps', 'actions', '步骤', '行动']);
   return {
-    coreInfo: { projectName: text(project.name ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? raw.project_name ?? fallbackProject?.display_name, '未命名项目'), handle: text(project.handle ?? raw.handle, fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary: text(raw.abstract ?? raw.summary ?? project.summary ?? project.abstract, '暂无项目摘要。'), stage: text(raw.stage ?? project.stage, '暂未确认') },
-    focusReason: { currentProgress: text(focus.currentProgress ?? focus.current_progress ?? raw.monitor, '暂未确认。'), strengths: strings(focus.strengths ?? focus.advantages), weaknesses: strings(focus.weaknesses ?? focus.risks), reason: text(focus.reason ?? raw.conclusion, '暂未形成综合判断。') },
-    tags: strings(raw.tags).length ? strings(raw.tags) : ['待分类'],
-    thesis: strings(raw.thesis ?? raw.key_focus).length ? strings(raw.thesis ?? raw.key_focus) : ['后续公开进展是关键验证点。'],
-    playbook: strings(raw.playbook ?? raw.monitor ?? record(raw.monitor).steps ?? record(raw.monitor).actions),
+    coreInfo: { projectName: text(first(project, ['projectName', 'name', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary: text(first(raw, ['abstract', 'summary', '项目摘要']) ?? first(project, ['summary', 'abstract', '摘要', '项目摘要']), '暂无项目摘要。'), stage: text(first(raw, ['stage', '阶段', '当前阶段']) ?? first(project, ['stage', '阶段', '当前阶段']), '暂未确认') },
+    focusReason: { currentProgress: text(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']) ?? first(raw, ['monitor', '当前进展']), '暂未确认。'), strengths: strings(first(focus, ['strengths', 'advantages', '优点', '优势'])), weaknesses: strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])), reason: text(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']), '暂未形成综合判断。') },
+    tags: strings(first(raw, ['tags', '标签'])).length ? strings(first(raw, ['tags', '标签'])) : ['待分类'],
+    thesis: strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).length ? strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])) : ['后续公开进展是关键验证点。'],
+    playbook: strings(playbookValue),
     l2Tracks: tracks,
-    independentReview: { status: ['passed', 'challenged', 'failed'].includes(text(review.status)) ? text(review.status) : 'challenged', hypotheses: strings(review.hypotheses ?? review.hypotheses_to_test).concat(strings(review.hypotheses ?? review.hypotheses_to_test).length ? [] : ['项目将继续推进并产生可验证进展。']), falsificationChecks: strings(review.falsificationChecks ?? review.falsification_checks ?? review.checks).concat(strings(review.falsificationChecks ?? review.falsification_checks ?? review.checks).length ? [] : ['检查后续版本、官方公告和实际使用情况。']), counterEvidence: strings(review.counterEvidence ?? review.counter_evidence), conclusion: text(review.conclusion, '暂未完成独立复核。'), evidence: reviewEvidence },
-    score: { overall: Math.max(0, Math.min(100, Number(scores.overall ?? scores.total ?? 0) || 0)), confidence: Math.max(0, Math.min(1, Number(scores.confidence ?? 0.3) || 0.3)), verdict: ['重点关注', '持续观察', '暂不纳入'].includes(text(scores.verdict)) ? text(scores.verdict) : '持续观察', dimensions: TRACK_KEYS.map((key) => ({ key, score: tracks.find((track) => track.key === key)?.score ?? 0, rationale: tracks.find((track) => track.key === key)?.summary ?? '暂未确认。' })) },
+    independentReview: { status: ['passed', 'challenged', 'failed'].includes(text(first(review, ['status', '状态']))) ? text(first(review, ['status', '状态'])) : 'challenged', hypotheses: strings(first(review, ['hypotheses', 'hypotheses_to_test', '假设', '待证伪假设'])).concat(strings(first(review, ['hypotheses', 'hypotheses_to_test', '假设', '待证伪假设'])).length ? [] : ['项目将继续推进并产生可验证进展。']), falsificationChecks: strings(first(review, ['falsificationChecks', 'falsification_checks', 'checks', '证伪检查项', '检查项'])).concat(strings(first(review, ['falsificationChecks', 'falsification_checks', 'checks', '证伪检查项', '检查项'])).length ? [] : ['检查后续版本、官方公告和实际使用情况。']), counterEvidence: strings(first(review, ['counterEvidence', 'counter_evidence', '反证', '反面证据'])), conclusion: text(first(review, ['conclusion', '结论']), '暂未完成独立复核。'), evidence: reviewEvidence },
+    score: { overall: Math.max(0, Math.min(100, Number(first(scores, ['overall', 'total', '总分'])) || 0)), confidence: Math.max(0, Math.min(1, Number(first(scores, ['confidence', '置信度'])) || 0.3)), verdict: ['重点关注', '持续观察', '暂不纳入'].includes(text(first(scores, ['verdict', '判断']))) ? text(first(scores, ['verdict', '判断'])) : '持续观察', dimensions: TRACK_KEYS.map((key) => ({ key, score: tracks.find((track) => track.key === key)?.score ?? 0, rationale: tracks.find((track) => track.key === key)?.summary ?? '暂未确认。' })) },
     risksEvidence: riskItems.map((item) => { const value = record(item); return { risk: text(value.risk ?? value.reason ?? value, '待核实风险'), evidence: Array.isArray(value.evidence) ? value.evidence.flatMap((entry) => normalizedEvidence(entry, evidenceIds)) : [] }; })
   };
 }
