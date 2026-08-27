@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import './login.css';
@@ -108,9 +108,26 @@ function SettingsView() { const [status, setStatus] = useState<Record<string, un
 
 function App() {
   const [view, setView] = useState<View>('feed'); const [filter, setFilter] = useState('all'); const [query, setQuery] = useState(''); const [projects, setProjects] = useState<Project[]>([]); const [selected, setSelected] = useState<Project | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  const loadProjects = useCallback(async () => { setLoading(true); try { const payload = await api<{ items: Array<Record<string, unknown>> }>(`/api/projects?filter=${filter === 'all' ? 'all' : filter}&limit=100`); setProjects(payload.items.map(mapProject)); setError(''); } catch (error) { if (error instanceof Error && error.message === 'unauthorized') { window.location.reload(); return; } setError(error instanceof Error ? error.message : '项目加载失败'); } finally { setLoading(false); } }, [filter]);
+  const backgroundRefreshInFlight = useRef(false);
+  const loadProjects = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => { if (showLoading) setLoading(true); try { const payload = await api<{ items: Array<Record<string, unknown>> }>(`/api/projects?filter=${filter === 'all' ? 'all' : filter}&limit=100`); setProjects(payload.items.map(mapProject)); setError(''); } catch (error) { if (error instanceof Error && error.message === 'unauthorized') { window.location.reload(); return; } setError(error instanceof Error ? error.message : '项目加载失败'); } finally { if (showLoading) setLoading(false); } }, [filter]);
   useEffect(() => { void loadProjects(); }, [loadProjects]);
-  useEffect(() => { const stream = new EventSource('/events'); const refresh = () => { void loadProjects(); }; stream.onopen = refresh; stream.onmessage = refresh; const timer = window.setInterval(refresh, 15_000); return () => { stream.close(); window.clearInterval(timer); }; }, [loadProjects]);
+  useEffect(() => {
+    const stream = new EventSource('/events');
+    let debounceTimer: number | undefined;
+    const refresh = () => {
+      if (debounceTimer !== undefined) return;
+      debounceTimer = window.setTimeout(() => {
+        debounceTimer = undefined;
+        if (backgroundRefreshInFlight.current) return;
+        backgroundRefreshInFlight.current = true;
+        void loadProjects({ showLoading: false }).finally(() => { backgroundRefreshInFlight.current = false; });
+      }, 300);
+    };
+    stream.onopen = refresh;
+    stream.onmessage = refresh;
+    const timer = window.setInterval(refresh, 15_000);
+    return () => { stream.close(); window.clearInterval(timer); if (debounceTimer !== undefined) window.clearTimeout(debounceTimer); };
+  }, [loadProjects, backgroundRefreshInFlight]);
   const filtered = useMemo(() => projects.filter((project) => `${project.handle} ${project.name} ${project.xUserId}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => {
     const aTime = a.latestSignalAt ? new Date(a.latestSignalAt).getTime() : 0;
     const bTime = b.latestSignalAt ? new Date(b.latestSignalAt).getTime() : 0;
