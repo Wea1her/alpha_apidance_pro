@@ -175,7 +175,21 @@ function parseReport(textValue: string, evidenceIds: readonly string[], fallback
   throw lastError instanceof Error ? lastError : new Error('research output could not be parsed');
 }
 
-const PLACEHOLDER_TEXT = new Set(['暂未确认', '暂未确认。', '暂无项目摘要。', '暂未形成综合判断。', '暂未完成独立复核。', '后续公开进展是关键验证点。', '暂无可核验结论。']);
+const PLACEHOLDER_TEXT = new Set([
+  '暂未确认',
+  '暂未确认。',
+  '暂无项目摘要。',
+  '暂未形成综合判断。',
+  '暂未完成独立复核。',
+  '后续公开进展是关键验证点。',
+  '暂无可核验结论。',
+  // Legacy fallbacks emitted by earlier prompt/worker versions. Treat them
+  // as empty so a newly normalized report can replace them with a useful
+  // evidence-aware statement instead of displaying the old placeholder.
+  '公开进展暂未确认，等待后续更新。',
+  '当前无法确认知名 Crypto 背书账号或机构背景；现有关注信号仅作为早期线索，不等同于可验证背书。',
+  '当前无法确认知名 Crypto 背书账号或机构背景。'
+]);
 
 /** Prevent a syntactically valid but empty model response being marked ready. */
 function assertReportComplete(report: ReportDocument): void {
