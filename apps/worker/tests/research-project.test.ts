@@ -99,6 +99,17 @@ describe('research-project handler', () => {
     expect(versions.rows[0]?.count).toBe('0');
   });
 
+  it('skips deep research for blocked account types even if an old decision allowed it', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name, status) values ('47', 'zec_bit', 'Zec Bit', 'active') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'NFT', 'NFT 项目')`, [project.rows[0].id]);
+    const calls = { count: 0 };
+    await createResearchProjectHandler(database, new AiProviderRouter([adapter(calls)]))({ id: 'job-nft', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:47', payload: { projectId: project.rows[0].id } });
+    expect(calls.count).toBe(0);
+    const versions = await database.query<{ count: string }>('select count(*)::text as count from report_versions');
+    expect(versions.rows[0]?.count).toBe('0');
+  });
+
   it('maps Chinese report fields instead of silently using placeholders', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('44', 'alpha', 'Alpha Project') returning id`);
@@ -114,6 +125,8 @@ describe('research-project handler', () => {
     expect(result.rows[0]?.rendered_markdown).toContain('项目公开背景资料基于账号简介、历史推文和所属生态整理');
     expect(result.rows[0]?.rendered_markdown).not.toContain('公开进展暂未确认，等待后续更新');
     expect(result.rows[0]?.rendered_markdown).not.toContain('无法确认知名 Crypto 背书账号');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('当前暂无正向证据');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('当前暂无负向证据');
     expect(result.rows[0]?.rendered_markdown).not.toContain('关注测试网任务');
     expect(result.rows[0]?.rendered_markdown).not.toContain('L2 六赛道深挖');
     expect(result.rows[0]?.rendered_markdown).not.toContain('评分总览');

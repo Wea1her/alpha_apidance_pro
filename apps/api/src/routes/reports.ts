@@ -14,7 +14,13 @@ export function registerReportRoutes(app: FastifyInstance, options: { database: 
     const eligible = await options.database.query<{ id: string }>(
       `select p.id from projects p
        where p.id = $1 and p.status <> 'excluded'
-         and exists (select 1 from screening_decisions sd where sd.project_id = p.id and sd.decision in ('allowed', 'manual_allowed'))`,
+         and exists (
+           select 1 from screening_decisions sd
+           where sd.project_id = p.id
+             and sd.decision in ('allowed', 'manual_allowed')
+             and sd.account_type not in ('KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT', 'TRADFI')
+             and sd.created_at = (select max(sd2.created_at) from screening_decisions sd2 where sd2.project_id = p.id)
+         )`,
       [request.params.id]
     );
     if (!eligible.rows[0]) return { items: [] };
@@ -32,7 +38,13 @@ export function registerReportRoutes(app: FastifyInstance, options: { database: 
     const eligible = await options.database.query<{ id: string }>(
       `select p.id from projects p
        where p.id = $1 and p.status <> 'excluded'
-         and exists (select 1 from screening_decisions sd where sd.project_id = p.id and sd.decision in ('allowed', 'manual_allowed'))`,
+         and exists (
+           select 1 from screening_decisions sd
+           where sd.project_id = p.id
+             and sd.decision in ('allowed', 'manual_allowed')
+             and sd.account_type not in ('KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT', 'TRADFI')
+             and sd.created_at = (select max(sd2.created_at) from screening_decisions sd2 where sd2.project_id = p.id)
+         )`,
       [request.params.id]
     );
     if (!eligible.rows[0]) return reply.code(404).send({ error: 'not_found' });

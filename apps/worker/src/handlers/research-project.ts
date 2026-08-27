@@ -103,18 +103,25 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const thesisValues = strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).filter((item) => !PLACEHOLDER_TEXT.has(item));
   const productSummary = tracks.find((track) => track.key === 'product')?.summary;
   const summary = substantive(first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']), thesisValues[0] ?? productSummary ?? (focusNarrative || '项目核心信息基于当前公开资料和 Alpha 信号整理，仍需通过后续交付验证。'));
-  const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势']));
-  const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足']));
-  const strengths = rawStrengths.length ? rawStrengths : thesisValues.slice(0, 2).concat(tracks.filter((track) => track.score >= 5).map((track) => track.summary).slice(0, 2));
-  const weaknesses = rawWeaknesses.length ? rawWeaknesses : tracks.filter((track) => track.score < 5).map((track) => track.summary).slice(0, 3);
-  const progressFallback = [tracks.find((track) => track.key === 'technology')?.summary, tracks.find((track) => track.key === 'catalysts')?.summary].filter(Boolean).join('；');
+  const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).filter((item) => !PLACEHOLDER_TEXT.has(item) && !/暂无(?:明确)?优势|暂无正向证据/u.test(item));
+  const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).filter((item) => !PLACEHOLDER_TEXT.has(item) && !/暂无(?:明确)?缺点|暂无负向证据/u.test(item));
+  const trackStrengths = tracks.filter((track) => track.score >= 5 && !PLACEHOLDER_TEXT.has(track.summary)).map((track) => `${track.title}：${track.summary}`).slice(0, 3);
+  const trackWeaknesses = tracks.filter((track) => track.score < 5 && !PLACEHOLDER_TEXT.has(track.summary)).map((track) => `${track.title}：${track.summary}`).slice(0, 3);
+  const strengths = rawStrengths.length ? rawStrengths : thesisValues.slice(0, 2).concat(trackStrengths).concat(typeof productSummary === 'string' && !PLACEHOLDER_TEXT.has(productSummary) ? [`产品定位线索：${productSummary}；若后续交付与用户反馈得到验证，可构成早期差异化。`] : []);
+  const weaknesses = rawWeaknesses.length ? rawWeaknesses : trackWeaknesses.concat([
+    '证据完整性风险：当前公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。',
+    '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'
+  ]).slice(0, 3);
+  const progressFallback = [tracks.find((track) => track.key === 'technology')?.summary, tracks.find((track) => track.key === 'catalysts')?.summary].filter((value): value is string => typeof value === 'string' && value.length > 0 && !PLACEHOLDER_TEXT.has(value)).join('；');
+  const normalizedStrengths = strengths.length ? strengths : ['定位线索：账号围绕一个明确主题或产品方向展开，若后续出现可验证交付与用户反馈，可能形成早期差异化。'];
+  const normalizedWeaknesses = weaknesses.length ? weaknesses : ['证据完整性风险：当前公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
   const currentProgress = stripSectionPrefix(text(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']) ?? progressFallback ?? focusNarrative ?? first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
   const stage = substantive(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '早期公开构建阶段（基于当前可见信号）');
   const background = substantive(first(raw, ['background', 'projectBackground', '项目背景', '项目背景/背书账号']) ?? first(project, ['background', 'projectBackground', '项目背景']), '项目公开背景资料基于账号简介、历史推文和所属生态整理，具体团队与交付仍需后续公开证据验证。');
   const normalizedTags = strings(first(raw, ['tags', '标签'])).map(stripSectionPrefix).flatMap((item) => item.split(/[、,，]/u).map((tag) => tag.trim()).filter(Boolean));
   return {
     coreInfo: { projectName: text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', 'xHandle', 'xAccount', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'xHandle', 'xAccount', 'account', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary, stage, background },
-    focusReason: { currentProgress, strengths: strengths.length ? strengths : ['当前暂无正向证据，需继续核实公开交付。'], weaknesses: weaknesses.length ? weaknesses : ['当前暂无负向证据，需继续核实公开交付。'], reason: text(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, currentProgress) },
+    focusReason: { currentProgress, strengths: normalizedStrengths, weaknesses: normalizedWeaknesses, reason: text(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, currentProgress) },
     tags: normalizedTags.length ? normalizedTags : ['早期项目', '待持续验证'],
     thesis: thesisValues.length ? thesisValues.map(stripSectionPrefix) : [focusNarrative ? `核心判断：${focusNarrative}` : '核心判断：项目是否能完成公开交付，是后续价值验证的关键。'],
     playbook: strings(playbookValue).filter((item) => !PLACEHOLDER_TEXT.has(item)).length ? strings(playbookValue).filter((item) => !PLACEHOLDER_TEXT.has(item)).map(stripSectionPrefix) : [`观察动作：持续跟踪${tracks.find((track) => track.key === 'catalysts')?.summary ?? '官方更新、产品交付和用户增长信号'}，在出现可验证进展后再评估小额试错。`],
@@ -183,6 +190,9 @@ const PLACEHOLDER_TEXT = new Set([
   '暂未完成独立复核。',
   '后续公开进展是关键验证点。',
   '暂无可核验结论。',
+  '暂无公开证据，无法确认项目摘要。',
+  '暂无明确优势，需继续核实公开交付。',
+  '暂无明确缺点，需继续核实公开交付。',
   // Legacy fallbacks emitted by earlier prompt/worker versions. Treat them
   // as empty so a newly normalized report can replace them with a useful
   // evidence-aware statement instead of displaying the old placeholder.
@@ -282,7 +292,13 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
       `select p.id, p.current_handle, p.display_name, p.status
        from projects p
        where p.id = $1 and p.status <> 'excluded'
-         and exists (select 1 from screening_decisions sd where sd.project_id = p.id and sd.decision in ('allowed', 'manual_allowed'))`,
+         and exists (
+           select 1 from screening_decisions sd
+           where sd.project_id = p.id
+             and sd.decision in ('allowed', 'manual_allowed')
+             and sd.account_type not in ('KOL', 'PERSONAL', 'DEV', 'MEDIA', 'NFT', 'TRADFI')
+             and sd.created_at = (select max(sd2.created_at) from screening_decisions sd2 where sd2.project_id = p.id)
+         )`,
       [projectId]
     );
     // A project can be excluded while a queued research job is waiting. Treat
