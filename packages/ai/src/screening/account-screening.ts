@@ -82,6 +82,17 @@ function inferAccountTypeFromReason(reason: string): AccountType {
   return 'UNKNOWN';
 }
 
+function reasonConfirmsProject(reason: string): boolean {
+  // Compatible relays have occasionally returned accountType=KOL while the
+  // evidence paragraph explicitly says the account is a project and should be
+  // retained. Treat that as a model contradiction instead of blocking a valid
+  // project. This guard only applies when the reason contains an explicit
+  // negation of the blocked labels plus a positive retain/project conclusion.
+  return /(?:不属于|非|不是)\s*(?:KOL|个人(?:账号|用户)?|开发者|Dev|媒体|NFT|PFP|TRADFI|传统金融)/iu.test(reason)
+    && /(?:项目|协议|产品|平台|链上)/u.test(reason)
+    && /(?:保留|应保留|允许进入|符合(?:筛选|标准))/u.test(reason);
+}
+
 function hasCryptoScope(value: string): boolean {
   return /(?:加密|区块链|代币|链上|crypto|web3|token|defi|airdrop|testnet|mainnet|solana|ethereum|base|meme coin)/i.test(value);
 }
@@ -117,7 +128,8 @@ function parseModelOutput(text: string): ScreeningOutput {
   // Some compatible providers label every crypto account as PROJECT even when
   // their own explanation clearly describes an NFT/PFP collectible. Treat that
   // contradiction as NFT so it cannot enter the short-term project pool.
-  const accountType = explicitType === 'UNKNOWN' || (explicitType === 'PROJECT' && inferredType === 'NFT') ? inferredType : explicitType;
+  let accountType = explicitType === 'UNKNOWN' || (explicitType === 'PROJECT' && inferredType === 'NFT') ? inferredType : explicitType;
+  if (BLOCKED_TYPES.has(accountType) && reasonConfirmsProject(reason)) accountType = 'PROJECT';
   return ScreeningOutputSchema.parse({ accountType, reason, ...(confidence !== undefined && Number.isFinite(confidence) ? { confidence } : {}) });
 }
 

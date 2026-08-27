@@ -23,16 +23,23 @@ export function createScreenAccountHandler(database: JobDatabase, screening: Acc
       idempotencyKey: `screening:${decisionId}:website`
     });
     if (result.decision === 'allowed') {
-      const project = await database.query<{ highest_star: number; x_user_id: string; status: string }>('select highest_star, x_user_id, status from projects where id = $1', [payload.projectId]);
+      const project = await database.query<{ highest_star: number; x_user_id: string; status: string; exclusion_reason: string | null }>('select highest_star, x_user_id, status, exclusion_reason from projects where id = $1', [payload.projectId]);
       const row = project.rows[0];
-      if (!row || row.status === 'excluded') return;
+      if (!row) return;
       const trench = Boolean(row && row.highest_star >= 3);
       const activated = await database.query<{ id: string }>(
         `update projects set status = $2, updated_at = now()
-         where id = $1 and status <> 'excluded' returning id`,
+         where id = $1
+           and (status <> 'excluded' or exclusion_reason like 'AI 初筛自动拦截：%')
+         returning id`,
         [payload.projectId, trench ? 'trench' : 'active']
       );
       if (!activated.rows[0]) return;
+      // A later re-screen can overturn an earlier AI block. Restore only
+      // automatic exclusions; an explicit manual exclusion remains respected.
+      if (row.status === 'excluded' && row.exclusion_reason?.startsWith('AI 初筛自动拦截：')) {
+        await database.query(`update projects set excluded_at = null, exclusion_reason = null where id = $1`, [payload.projectId]);
+      }
       if (trench && row) await ensureTrenchMonitoring(database, payload.projectId, row.x_user_id);
       await new JobStore(database).enqueue({ type: 'research_project', idempotencyKey: `research:${payload.projectId}`, payload: { projectId: payload.projectId }, priority: 30 });
     } else if (result.decision === 'blocked') {

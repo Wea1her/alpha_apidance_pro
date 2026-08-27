@@ -23,4 +23,17 @@ describe('screen-account handler', () => {
     expect(decisions.rows[0]?.decision).toBe('allowed');
     expect(jobs.rows[0]?.type).toBe('research_project');
   });
+
+  it('overrides a contradictory blocked label when the evidence says retain project', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, status, excluded_at, exclusion_reason) values ('43', 'mosaicetf', 'excluded', now(), 'AI 初筛自动拦截：旧判断') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'blocked', 'KOL', '旧判断')`, [project.rows[0].id]);
+    const reason = '简介证据：账号是链上 ETF 协议并提供合约地址；项目类型结论：属于加密项目，不属于 KOL、个人账号、NFT 或 TRADFI，符合筛选标准，应保留。';
+    const handler = createScreenAccountHandler(database, new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'KOL', reason }))])));
+    await handler({ id: 'job-2', type: 'screen_account', priority: 1, status: 'running', idempotencyKey: 'screen:2', payload: { projectId: project.rows[0].id, input: { xUserId: '43', handle: 'mosaicetf', bio: 'ETFs rebuilt onchain.' } } });
+    const current = await database.query<{ status: string; exclusion_reason: string | null }>('select status, exclusion_reason from projects where id = $1', [project.rows[0].id]);
+    const latest = await database.query<{ decision: string; account_type: string }>('select decision, account_type from screening_decisions where project_id = $1 order by created_at desc limit 1', [project.rows[0].id]);
+    expect(latest.rows[0]).toMatchObject({ decision: 'allowed', account_type: 'PROJECT' });
+    expect(current.rows[0]).toMatchObject({ status: 'active', exclusion_reason: null });
+  });
 });
