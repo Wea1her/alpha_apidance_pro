@@ -42,7 +42,21 @@ function strings(value: unknown): string[] {
   return single ? [single] : [];
 }
 function stripSectionPrefix(value: string): string {
-  return value.replace(/^\s*[1-7８-９七六五四三二一]+[\.、．]\s*(?:项目核心信息|项目背景(?:\/背书账号)?|当前进展|优点|缺点|关注理由|标签)\s*[:：]?\s*/u, '').trim();
+  return value.replace(/^\s*(?:第\s*)?[1-7８-９七六五四三二一]+\s*[\.、．]\s*(?:项目核心信息|项目背景(?:\/背书账号)?|当前进展|优点|缺点|关注理由|标签)\s*[:：]?\s*/u, '').trim();
+}
+function stripTrackPrefix(value: string): string {
+  return value.replace(/^\s*(?:第\s*)?[1-6一二三四五六]+\s*[\.、．]\s*(?:产品与需求|技术与交付|团队与执行|市场与生态|代币与激励|催化剂与风险)(?:\s*[（(][^）)]*[）)])?\s*[:：]?\s*/u, '').trim();
+}
+function sectionValue(value: unknown, expected: string, fallback = ''): string {
+  const raw = text(value);
+  if (!raw || PLACEHOLDER_TEXT.has(raw)) return fallback;
+  const heading = raw.match(/^\s*(?:第\s*)?([1-7一二三四五六七])\s*[\.、．]\s*(项目核心信息|项目背景(?:\/背书账号)?|当前进展|优点|缺点|关注理由|标签)\s*[:：]?/u);
+  if (heading && heading[2] !== expected) return fallback;
+  const cleaned = stripSectionPrefix(raw);
+  // Some relays concatenate several numbered sections into one JSON field.
+  // Keep only the portion belonging to the requested section.
+  const nextSection = cleaned.search(/\s+(?:[1-7一二三四五六七])\s*[\.、．]\s*(?:项目核心信息|项目背景(?:\/背书账号)?|当前进展|优点|缺点|关注理由|标签)\s*[:：]/u);
+  return (nextSection > 0 ? cleaned.slice(0, nextSection) : cleaned).trim();
 }
 function sanitizeCurrentProgress(value: string): string {
   let cleaned = stripSectionPrefix(value)
@@ -102,8 +116,8 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
     const evidenceValue = first(source, ['evidence', '证据', 'evidence_chain', '证据链']);
     const evidence = Array.isArray(evidenceValue) ? evidenceValue.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
     const explicitFindings = strings(first(source, ['findings', 'key_findings', 'points', 'analysis', 'description', '发现', '要点', '关键发现', '描述']));
-    const findings = explicitFindings.length ? explicitFindings : recordTextValues(source);
-    const summary = text(first(source, ['summary', 'assessment', 'conclusion', 'description', '总结', '判断', '结论', '分析', '描述'])) || findings[0] || '暂无可核验结论。';
+    const findings = (explicitFindings.length ? explicitFindings : recordTextValues(source)).map(stripTrackPrefix).filter(Boolean);
+    const summary = stripTrackPrefix(text(first(source, ['summary', 'assessment', 'conclusion', 'description', '总结', '判断', '结论', '分析', '描述'])) || findings[0] || '暂无可核验结论。');
     return { key, title: TRACK_TITLES[key], score: Math.max(0, Math.min(10, Number(first(source, ['score', 'rating', '评分'])) || Number(scoreDimensions[key]) || Number(scores[key]) || 0)), summary, findings: findings.slice(0, 8).concat(findings.length ? [] : ['暂无可核验结论。']), evidence };
   });
   const reviewEvidenceValue = first(review, ['evidence', '证据', '证据链']);
@@ -115,9 +129,10 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const focusNarrative = typeof first(raw, ['focusReason', 'focus']) === 'string' ? stripSectionPrefix(text(first(raw, ['focusReason', 'focus']))) : '';
   const thesisValues = strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).filter((item) => !PLACEHOLDER_TEXT.has(item));
   const productSummary = tracks.find((track) => track.key === 'product')?.summary;
-  const summary = substantive(first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']), thesisValues[0] ?? productSummary ?? (focusNarrative || '项目核心信息基于当前公开资料和 Alpha 信号整理，仍需通过后续交付验证。'));
-  const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).filter((item) => !PLACEHOLDER_TEXT.has(item) && !/暂无(?:明确)?优势|暂无正向证据/u.test(item));
-  const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).filter((item) => !PLACEHOLDER_TEXT.has(item) && !/暂无(?:明确)?缺点|暂无负向证据/u.test(item));
+  const summaryCandidate = first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']);
+  const summary = sectionValue(summaryCandidate, '项目核心信息', thesisValues[0] ?? productSummary ?? (focusNarrative || '项目核心信息基于当前公开资料和 Alpha 信号整理，仍需通过后续交付验证。'));
+  const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sectionValue(item, '优点')).filter((item) => item && !/暂无(?:明确)?优势|暂无正向证据/u.test(item));
+  const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sectionValue(item, '缺点')).filter((item) => item && !/暂无(?:明确)?缺点|暂无负向证据/u.test(item));
   const trackStrengths = tracks.filter((track) => track.score >= 5 && !PLACEHOLDER_TEXT.has(track.summary)).map((track) => `${track.title}：${track.summary}`).slice(0, 3);
   const trackWeaknesses = tracks.filter((track) => track.score < 5 && !PLACEHOLDER_TEXT.has(track.summary)).map((track) => `${track.title}：${track.summary}`).slice(0, 3);
   const strengths = rawStrengths.length ? rawStrengths : thesisValues.slice(0, 2).concat(trackStrengths).concat(typeof productSummary === 'string' && !PLACEHOLDER_TEXT.has(productSummary) ? [`产品定位线索：${productSummary}；若后续交付与用户反馈得到验证，可构成早期差异化。`] : []);
@@ -128,13 +143,13 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const progressFallback = [tracks.find((track) => track.key === 'technology')?.summary, tracks.find((track) => track.key === 'catalysts')?.summary].filter((value): value is string => typeof value === 'string' && value.length > 0 && !PLACEHOLDER_TEXT.has(value)).join('；');
   const normalizedStrengths = strengths.length ? strengths : ['定位线索：账号围绕一个明确主题或产品方向展开，若后续出现可验证交付与用户反馈，可能形成早期差异化。'];
   const normalizedWeaknesses = weaknesses.length ? weaknesses : ['证据完整性风险：当前公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
-  const currentProgress = sanitizeCurrentProgress(text(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']) ?? progressFallback ?? focusNarrative ?? first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
+  const currentProgress = sanitizeCurrentProgress(sectionValue(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']), '当前进展', progressFallback || focusNarrative || text(first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。')));
   const stage = substantive(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '早期公开构建阶段（基于当前可见信号）');
-  const background = substantive(first(raw, ['background', 'projectBackground', '项目背景', '项目背景/背书账号']) ?? first(project, ['background', 'projectBackground', '项目背景']), '项目公开背景资料基于账号简介、历史推文和所属生态整理，具体团队与交付仍需后续公开证据验证。');
+  const background = sectionValue(first(raw, ['background', 'projectBackground', '项目背景', '项目背景/背书账号']) ?? first(project, ['background', 'projectBackground', '项目背景']), '项目背景', '项目公开背景资料基于账号简介、历史推文和所属生态整理，具体团队与交付仍需后续公开证据验证。');
   const normalizedTags = strings(first(raw, ['tags', '标签'])).map(stripSectionPrefix).flatMap((item) => item.split(/[、,，]/u).map((tag) => tag.trim()).filter(Boolean));
   return {
     coreInfo: { projectName: text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', 'xHandle', 'xAccount', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'xHandle', 'xAccount', 'account', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary, stage, background },
-    focusReason: { currentProgress, strengths: normalizedStrengths, weaknesses: normalizedWeaknesses, reason: text(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, currentProgress) },
+    focusReason: { currentProgress, strengths: normalizedStrengths, weaknesses: normalizedWeaknesses, reason: sectionValue(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, '关注理由', currentProgress) },
     tags: normalizedTags.length ? normalizedTags : ['早期项目', '待持续验证'],
     thesis: thesisValues.length ? thesisValues.map(stripSectionPrefix) : [focusNarrative ? `核心判断：${focusNarrative}` : '核心判断：项目是否能完成公开交付，是后续价值验证的关键。'],
     playbook: strings(playbookValue).filter((item) => !PLACEHOLDER_TEXT.has(item)).length ? strings(playbookValue).filter((item) => !PLACEHOLDER_TEXT.has(item)).map(stripSectionPrefix) : [`观察动作：持续跟踪${tracks.find((track) => track.key === 'catalysts')?.summary ?? '官方更新、产品交付和用户增长信号'}，在出现可验证进展后再评估小额试错。`],
