@@ -24,7 +24,7 @@ if (needsAi && aiApiKey && aiBaseUrl) {
     researchModel: process.env.AI_RESEARCH_MODEL ?? 'grok-4.20-multi-agent-0309',
     xSearch: process.env.AI_X_SEARCH !== 'false',
     timeoutMs: Number.parseInt(process.env.AI_TIMEOUT_MS ?? '90000', 10),
-    maxOutputTokens: Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS ?? '6000', 10)
+    maxOutputTokens: Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS ?? '12000', 10)
   });
   const health = await provider.healthCheck();
   provider.profile.health = health;
@@ -41,7 +41,7 @@ if (needsAi && aiApiKey && aiBaseUrl) {
       xSearch: process.env.AI_X_SEARCH !== 'false',
       role: 'fallback',
       timeoutMs: Number.parseInt(process.env.AI_TIMEOUT_MS ?? '90000', 10),
-      maxOutputTokens: Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS ?? '6000', 10)
+      maxOutputTokens: Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS ?? '12000', 10)
     });
     fallback.profile.health = await fallback.healthCheck();
     console.log(`[worker] AI fallback ${fallback.profile.name} health=${fallback.profile.health}`);

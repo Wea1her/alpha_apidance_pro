@@ -4,6 +4,7 @@ import {
   buildResearchReportPrompt,
   renderReportMarkdown,
   ReportDocumentSchema,
+  type ReportDocument,
   validateEvidenceReferences
 } from '@alpha-research/ai';
 import { OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
@@ -141,6 +142,26 @@ function parseReport(textValue: string, evidenceIds: readonly string[], fallback
   throw lastError instanceof Error ? lastError : new Error('research output could not be parsed');
 }
 
+const PLACEHOLDER_TEXT = new Set(['暂未确认', '暂未确认。', '暂无项目摘要。', '暂未形成综合判断。', '暂未完成独立复核。', '后续公开进展是关键验证点。', '暂无可核验结论。']);
+
+/** Prevent a syntactically valid but empty model response being marked ready. */
+function assertReportComplete(report: ReportDocument): void {
+  const failures: string[] = [];
+  const meaningful = (value: string): boolean => Boolean(value.trim()) && !PLACEHOLDER_TEXT.has(value.trim());
+  if (!meaningful(report.coreInfo.summary)) failures.push('coreInfo.summary');
+  if (!meaningful(report.coreInfo.stage)) failures.push('coreInfo.stage');
+  if (!meaningful(report.focusReason.currentProgress)) failures.push('focusReason.currentProgress');
+  if (!meaningful(report.focusReason.reason)) failures.push('focusReason.reason');
+  if (!report.focusReason.strengths.some(meaningful)) failures.push('focusReason.strengths');
+  if (!report.focusReason.weaknesses.some(meaningful)) failures.push('focusReason.weaknesses');
+  if (!report.thesis.some(meaningful)) failures.push('thesis');
+  if (!report.playbook.some(meaningful)) failures.push('playbook');
+  if (report.l2Tracks.some((track) => track.score <= 0 || !meaningful(track.summary) || !track.findings.some(meaningful))) failures.push('l2Tracks');
+  if (!meaningful(report.independentReview.conclusion)) failures.push('independentReview.conclusion');
+  if (report.score.overall <= 0 || report.score.dimensions.some((dimension) => dimension.score <= 0 || !meaningful(dimension.rationale))) failures.push('score');
+  if (failures.length) throw new Error(`research output incomplete: ${failures.join(', ')}`);
+}
+
 function signalExcerpt(signal: SignalRow): string {
   const count = signal.common_follow_count == null ? '' : `共同关注 ${signal.common_follow_count} 人。`;
   return `${count}${signal.content?.trim() || `Alpha 信号类型：${signal.type}`}`.slice(0, 600);
@@ -237,10 +258,27 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
         signals: signals.map((signal) => `${signal.id}｜${signalExcerpt(signal)}`),
         evidence: evidence.map((item) => `${item.id}｜${item.excerpt}｜来源：${item.url}`)
       });
-      const completion = await router.complete({ purpose: 'research', system: prompt.system, user: prompt.user, schema: 'ReportDocumentSchema' });
+      let completion = await router.complete({ purpose: 'research', system: prompt.system, user: prompt.user, schema: 'ReportDocumentSchema' });
+      let report: ReportDocument;
+      try {
+        report = parseReport(completion.response.text, evidence.map((item) => item.id), project);
+        assertReportComplete(report);
+      } catch (firstError) {
+        // A few relays return a valid JSON skeleton after tool use. Ask once
+        // more with an explicit completeness constraint before failing the job.
+        completion = await router.complete({
+          purpose: 'research',
+          system: `${prompt.system}\n不得输出占位值。每个字段必须给出基于搜索或信号的具体判断；若没有证据，写明“暂无公开证据”并解释原因。`,
+          user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请重新输出完整六赛道、评分、论点、玩法、风险和独立复核 JSON。`,
+          schema: 'ReportDocumentSchema'
+        });
+        report = parseReport(completion.response.text, evidence.map((item) => item.id), project);
+        assertReportComplete(report);
+      }
       const citationEvidence = await ensureCitationEvidence(database, project, completion.response.citations ?? []);
       const allEvidence = [...evidence, ...citationEvidence];
-      const report = parseReport(completion.response.text, allEvidence.map((item) => item.id), project);
+      // Citation evidence is appended after parsing; validate again against
+      // the final evidence set before persisting the readable document.
       const citedReport = citationEvidence.length ? {
         ...report,
         l2Tracks: report.l2Tracks.map((track, index) => index === 0 ? { ...track, evidence: [...track.evidence, ...citationEvidence.map((item) => ({ evidenceId: item.id, claim: 'Grok X Search 公开资料引用。', sourceUrl: item.url }))] } : track),

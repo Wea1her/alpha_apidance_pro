@@ -93,4 +93,29 @@ describe('research-project handler', () => {
     expect(result.rows[0]?.rendered_markdown).toContain('关注测试网任务');
     expect(result.rows[0]?.rendered_markdown).not.toContain('后续公开进展是关键验证点。');
   });
+
+  it('retries a syntactically valid but incomplete report before persisting', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('45', 'alpha', 'Alpha Project') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    await database.query(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'retry-raw', '{}'::jsonb, 'decoded')`);
+    const raw = await database.query<{ id: string }>('select id from raw_events limit 1');
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, '45', 'common_follow', now(), '共同关注 20 人', '{}'::jsonb)`, [raw.rows[0].id, project.rows[0].id]);
+    let calls = 0;
+    const retryAdapter: AiProviderAdapter = {
+      profile: { id: 'retry', name: 'retry', baseUrl: 'https://ai.test', screeningModel: 'screen', researchModel: 'research', capabilities: ['chat', 'structured_output'], role: 'main', enabled: true, health: 'healthy' },
+      complete: async (request) => {
+        calls += 1;
+        if (calls === 1) return { text: '{}', model: 'research' };
+        const evidenceId = request.user.match(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi)?.at(-1) ?? '00000000-0000-4000-8000-000000000001';
+        return { text: JSON.stringify(reportFor(evidenceId)), model: 'research' };
+      },
+      healthCheck: async () => 'healthy'
+    };
+    await createResearchProjectHandler(database, new AiProviderRouter([retryAdapter]))({ id: 'job-retry', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:45', payload: { projectId: project.rows[0].id } });
+    const result = await database.query<{ status: string; rendered_markdown: string }>('select status, rendered_markdown from report_versions');
+    expect(calls).toBe(2);
+    expect(result.rows[0]?.status).toBe('ready');
+    expect(result.rows[0]?.rendered_markdown).toContain('后续交付是关键验证点');
+  });
 });

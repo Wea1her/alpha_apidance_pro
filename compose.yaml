@@ -90,7 +90,7 @@ services:
       AI_X_SEARCH: ${AI_X_SEARCH:-true}
       AI_RESEARCH_FALLBACK_MODEL: ${AI_RESEARCH_FALLBACK_MODEL:-grok-4.20-multi-agent-0309}
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-180000}
-      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-6000}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-12000}
     depends_on:
       postgres: { condition: service_healthy }
     networks: [alpha]
