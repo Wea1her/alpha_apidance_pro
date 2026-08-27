@@ -60,14 +60,16 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const project = typeof projectValue === 'string' ? {} : record(projectValue);
   const focus = record(first(raw, ['focusReason', 'key_focus', 'focus_reason', 'focus', '关注理由', '重点关注理由']));
   const review = record(first(raw, ['independentReview', 'independent_review', 'review', '独立复核轮', '独立复核', '证伪检查']));
-  const scores = record(first(raw, ['score', 'scores', '评分总览', '评分']));
+  const scoreValue = first(raw, ['score', 'scores', '评分总览', '评分']);
+  const scores = typeof scoreValue === 'number' ? { overall: scoreValue } : record(scoreValue);
   const trackValue = first(raw, ['l2Tracks', 'six_tracks', 'lanes', '六赛道', 'L2六赛道', 'L2 六赛道深挖', '赛道']);
   const rawTracks = Array.isArray(trackValue)
     ? trackValue
     : Object.entries(record(trackValue)).map(([key, value]) => ({ key, ...record(value) }));
   const globalEvidence = strings(first(raw, ['evidence_ids', 'evidenceIds', 'evidence', '证据ID', '证据编号'])).flatMap((item) => normalizedEvidence(item, evidenceIds));
   const tracks = TRACK_KEYS.map((key) => {
-    const source = rawTracks.map(record).find((item) => trackKey(first(item, ['key', 'track', 'title', 'name', '赛道', '名称'])) === key) ?? {};
+    const source = rawTracks.map(record).find((item) => trackKey(first(item, ['key', 'track', 'title', 'name', '赛道', '名称'])) === key)
+      ?? record(rawTracks[TRACK_KEYS.indexOf(key)]);
     const evidenceValue = first(source, ['evidence', '证据', 'evidence_chain', '证据链']);
     const evidence = Array.isArray(evidenceValue) ? evidenceValue.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
     const findings = strings(first(source, ['findings', 'key_findings', 'points', 'analysis', '发现', '要点', '关键发现']));
@@ -80,7 +82,7 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const monitorValue = first(raw, ['monitor', '监控']);
   const playbookValue = first(raw, ['playbook', '参与玩法', '玩法', '参与方式']) ?? first(record(monitorValue), ['steps', 'actions', '步骤', '行动']);
   return {
-    coreInfo: { projectName: text(first(project, ['projectName', 'name', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary: text(first(raw, ['abstract', 'summary', '项目摘要']) ?? first(project, ['summary', 'abstract', '摘要', '项目摘要']), '暂无项目摘要。'), stage: text(first(raw, ['stage', '阶段', '当前阶段']) ?? first(project, ['stage', '阶段', '当前阶段']), '暂未确认') },
+    coreInfo: { projectName: text(first(project, ['projectName', 'name', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary: text(first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']), '暂无项目摘要。'), stage: text(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '暂未确认') },
     focusReason: { currentProgress: text(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']) ?? first(raw, ['monitor', '当前进展']), '暂未确认。'), strengths: strings(first(focus, ['strengths', 'advantages', '优点', '优势'])), weaknesses: strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])), reason: text(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']), '暂未形成综合判断。') },
     tags: strings(first(raw, ['tags', '标签'])).length ? strings(first(raw, ['tags', '标签'])) : ['待分类'],
     thesis: strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).length ? strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])) : ['后续公开进展是关键验证点。'],
