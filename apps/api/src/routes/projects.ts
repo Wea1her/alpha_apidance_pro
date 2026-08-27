@@ -82,7 +82,10 @@ function toProject(row: ProjectRow) {
 export function registerProjectRoutes(app: FastifyInstance, options: ProjectRoutesOptions): void {
   app.get<{ Querystring: { filter?: string; limit?: string } }>('/api/projects', async (request, reply) => {
     const filter = request.query.filter ?? 'all';
-    const limit = Math.min(Math.max(Number.parseInt(request.query.limit ?? '50', 10) || 50, 1), 100);
+    // The private desk currently tracks several hundred projects. Keep a
+    // generous upper bound so the UI does not mistake the old 100-row safety
+    // cap for the real project count.
+    const limit = Math.min(Math.max(Number.parseInt(request.query.limit ?? '50', 10) || 50, 1), 1000);
     const clauses: string[] = [];
     const params: unknown[] = [];
     const approvedClause = `p.status <> 'excluded' and exists (select 1 from screening_decisions sd where sd.project_id = p.id and sd.decision in ('allowed', 'manual_allowed'))`;
