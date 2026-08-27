@@ -180,9 +180,10 @@ function assertReportComplete(report: ReportDocument): void {
   if (!report.focusReason.weaknesses.some(meaningful)) failures.push('focusReason.weaknesses');
   if (!report.thesis.some(meaningful)) failures.push('thesis');
   if (!report.playbook.some(meaningful)) failures.push('playbook');
-  if (report.l2Tracks.some((track) => !meaningful(track.summary) || !track.findings.some(meaningful))) failures.push('l2Tracks');
-  if (!meaningful(report.independentReview.conclusion)) failures.push('independentReview.conclusion');
-  if (report.score.dimensions.some((dimension) => !meaningful(dimension.rationale))) failures.push('score');
+  // L2 tracks, independent review and scores are retained internally for
+  // auditability, but the reader-facing report intentionally exposes only
+  // sections 1-7. Missing hidden fields must not make an otherwise readable
+  // Chinese report fail and disappear from the desk.
   if (failures.length) throw new Error(`research output incomplete: ${failures.join(', ')}`);
 }
 
@@ -293,7 +294,7 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
         completion = await router.complete({
           purpose: 'research',
           system: `${prompt.system}\n不得输出占位值。每个字段必须给出基于搜索或信号的具体判断；若没有证据，写明“暂无公开证据”并解释原因。`,
-          user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请重新输出完整六赛道、评分、论点、玩法、风险和独立复核 JSON。`,
+          user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请优先补齐 1-7 节可读中文正文，每节都要有具体事实、判断和不确定性；内部六赛道、评分和复核字段可基于已有证据归一化。`,
           schema: 'ReportDocumentSchema'
         });
         report = parseReport(completion.response.text, evidence.map((item) => item.id), project);
