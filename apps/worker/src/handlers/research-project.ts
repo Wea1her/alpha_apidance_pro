@@ -44,6 +44,19 @@ function strings(value: unknown): string[] {
 function stripSectionPrefix(value: string): string {
   return value.replace(/^\s*[1-7８-９七六五四三二一]+[\.、．]\s*(?:项目核心信息|项目背景(?:\/背书账号)?|当前进展|优点|缺点|关注理由|标签)\s*[:：]?\s*/u, '').trim();
 }
+function sanitizeCurrentProgress(value: string): string {
+  let cleaned = stripSectionPrefix(value)
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/giu, '')
+    .replace(/X\s*账号\s*@?[\w.-]+(?:简介|资料)[^；。]*[；。]?/giu, '')
+    .replace(/(?:绑定|关联)?\s*(?:evidence|证据)(?:\s*(?:ID|编号))?[^；。]*[；。]?/giu, '')
+    .replace(/(?:共同关注(?:人数|峰值)?|粉丝(?:数)?|Alpha\s*星级)[^；。]*[；。]?/giu, '')
+    .replace(/近期推文均为\s*[🔒锁定内容]+[^；。]*[；。]?/gu, '')
+    .replace(/\s*[；;，,]\s*/gu, '；')
+    .replace(/(?:^；+|；+$)/gu, '')
+    .replace(/；{2,}/gu, '；')
+    .trim();
+  return cleaned || '最近帖子分析：当前未获取到可公开读取的近期帖子正文，可能是锁定、删除或搜索结果受限；待下一条公开帖子验证。';
+}
 function recordTextValues(value: unknown): string[] {
   const object = record(value);
   return Object.entries(object)
@@ -115,7 +128,7 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const progressFallback = [tracks.find((track) => track.key === 'technology')?.summary, tracks.find((track) => track.key === 'catalysts')?.summary].filter((value): value is string => typeof value === 'string' && value.length > 0 && !PLACEHOLDER_TEXT.has(value)).join('；');
   const normalizedStrengths = strengths.length ? strengths : ['定位线索：账号围绕一个明确主题或产品方向展开，若后续出现可验证交付与用户反馈，可能形成早期差异化。'];
   const normalizedWeaknesses = weaknesses.length ? weaknesses : ['证据完整性风险：当前公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
-  const currentProgress = stripSectionPrefix(text(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']) ?? progressFallback ?? focusNarrative ?? first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
+  const currentProgress = sanitizeCurrentProgress(text(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']) ?? progressFallback ?? focusNarrative ?? first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
   const stage = substantive(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '早期公开构建阶段（基于当前可见信号）');
   const background = substantive(first(raw, ['background', 'projectBackground', '项目背景', '项目背景/背书账号']) ?? first(project, ['background', 'projectBackground', '项目背景']), '项目公开背景资料基于账号简介、历史推文和所属生态整理，具体团队与交付仍需后续公开证据验证。');
   const normalizedTags = strings(first(raw, ['tags', '标签'])).map(stripSectionPrefix).flatMap((item) => item.split(/[、,，]/u).map((tag) => tag.trim()).filter(Boolean));
