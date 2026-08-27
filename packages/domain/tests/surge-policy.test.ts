@@ -8,9 +8,17 @@ describe('surge policy', () => {
     const now = new Date('2026-08-26T00:30:00Z');
     const result = evaluateSurge([
       { occurredAt: start, count: 3, dedupeKey: 'a' },
-      { occurredAt: now, count: 8, dedupeKey: 'b' }
+      { occurredAt: now, count: 13, dedupeKey: 'b' }
     ], now);
-    expect(result).toMatchObject({ triggered: true, baselineCount: 3, peakCount: 8, triggeredAt: now });
+    expect(result).toMatchObject({ triggered: true, baselineCount: 3, peakCount: 13, triggeredAt: now });
     expect(result.expiresAt?.getTime()).toBe(now.getTime() + 6 * 60 * 60 * 1000);
+  });
+
+  it('does not trigger when ten new follows occur outside the thirty-minute window', () => {
+    const now = new Date('2026-08-26T01:00:00Z');
+    expect(evaluateSurge([
+      { occurredAt: new Date('2026-08-26T00:29:00Z'), count: 3, dedupeKey: 'a' },
+      { occurredAt: now, count: 13, dedupeKey: 'b' }
+    ], now)).toMatchObject({ triggered: false });
   });
 });

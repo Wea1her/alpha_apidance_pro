@@ -22,4 +22,19 @@ describe('decode-alpha-event realtime notifications', () => {
     expect(events.rows).toHaveLength(1);
     expect(events.rows[0]).toMatchObject({ type: 'signal.created', aggregate_type: 'project' });
   });
+
+  it('marks a project as surge after ten new common follows in thirty minutes', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const handler = createDecodeAlphaEventHandler(database);
+    const start = new Date('2026-08-27T03:00:00.000Z');
+    for (const [index, count] of [[0, 3], [1, 13]] as const) {
+      const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', $1, '{}'::jsonb, 'pending') returning id`, [`surge-${index}`]);
+      await handler({
+        id: `job-surge-${index}`, type: 'decode_alpha_event', priority: 1, status: 'running', idempotencyKey: `decode:surge-${index}`,
+        payload: { rawEventId: raw.rows[0].id, event: { type: 'common_follow', externalId: `surge-event-${index}`, xUserId: 'surge-user', handle: 'surge', commonFollowCount: count, occurredAt: new Date(start.getTime() + index * 15 * 60 * 1000), payload: { follow_user: { id_str: 'surge-user', screen_name: 'surge' } } } }
+      });
+    }
+    const project = await database.query<{ surge_until: string | null }>(`select surge_until from projects where x_user_id = 'surge-user'`);
+    expect(project.rows[0]?.surge_until).not.toBeNull();
+  });
 });

@@ -1,5 +1,5 @@
 import { JobStore, OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
-import { starForCommonFollowCount } from '@alpha-research/domain';
+import { evaluateSurge, starForCommonFollowCount } from '@alpha-research/domain';
 import type { DecodedAlphaEvent } from '@alpha-research/alpha';
 import { ensureTrenchMonitoring } from '../trench.js';
 
@@ -84,6 +84,25 @@ export function createDecodeAlphaEventHandler(database: JobDatabase) {
       [payload.rawEventId, event.type]
     )).rows[0]?.id;
     if (!signalId) throw new Error(`Signal insert returned no id for ${payload.rawEventId}`);
+    if (event.type === 'common_follow' && event.commonFollowCount !== undefined) {
+      const observations = await database.query<{ occurred_at: string; common_follow_count: number; id: string }>(
+        `select occurred_at, common_follow_count, id
+         from signals
+         where project_id = $1 and type = 'common_follow' and common_follow_count is not null
+           and occurred_at >= $2 and occurred_at <= $3
+         order by occurred_at asc`,
+        [projectId, new Date(event.occurredAt.getTime() - 30 * 60 * 1000), event.occurredAt]
+      );
+      const surge = evaluateSurge(observations.rows.map((item) => ({ occurredAt: new Date(item.occurred_at), count: item.common_follow_count, dedupeKey: item.id })), event.occurredAt);
+      if (surge.triggered && surge.expiresAt) {
+        await database.query(`update projects set surge_until = greatest(coalesce(surge_until, $2), $2), updated_at = now() where id = $1`, [projectId, surge.expiresAt]);
+        await database.query(
+          `insert into surges (project_id, window_started_at, baseline_count, peak_count, triggered_at, expires_at)
+           values ($1, $2, $3, $4, $5, $6) on conflict (project_id, triggered_at) do nothing`,
+          [projectId, new Date(event.occurredAt.getTime() - 30 * 60 * 1000), surge.baselineCount, surge.peakCount, surge.triggeredAt, surge.expiresAt]
+        );
+      }
+    }
     await new OutboxStore(database).append({
       type: 'signal.created',
       aggregateType: 'project',
