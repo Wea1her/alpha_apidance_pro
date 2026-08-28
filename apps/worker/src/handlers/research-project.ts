@@ -23,7 +23,13 @@ function parsePayload(job: JobRecord): ResearchProjectPayload {
   return payload;
 }
 
-function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function record(value: unknown): Record<string, unknown> {
+  let current = value;
+  for (let attempt = 0; attempt < 2 && typeof current === 'string'; attempt += 1) {
+    try { current = JSON.parse(current) as unknown; } catch { return {}; }
+  }
+  return current && typeof current === 'object' && !Array.isArray(current) ? current as Record<string, unknown> : {};
+}
 function text(value: unknown, fallback = ''): string { return typeof value === 'string' && value.trim() ? value.trim() : fallback; }
 function substantive(value: unknown, fallback: string): string { const result = text(value); return result && !PLACEHOLDER_TEXT.has(result) ? result : fallback; }
 function isTemplateEcho(value: unknown): boolean {
