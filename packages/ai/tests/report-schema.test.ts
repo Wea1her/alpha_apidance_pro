@@ -13,11 +13,14 @@ describe('research report document', () => {
     expect(prompt.user).toContain('项目名 (@账号) 定位为');
     expect(prompt.user).toContain('商业模式或收入分配');
     expect(prompt.user).toContain('完整连贯的中文分析');
+    expect(prompt.user).toContain('首句必须明确写“值得小仓试错”“持续观察”或“暂不纳入”');
+    expect(prompt.user).toContain('白名单、NFT mint 或首发 meme');
     expect(prompt.user).not.toContain('已完成事项、未完成事项');
     expect(prompt.user).not.toContain('项目背景');
     expect(prompt.system).toContain('ReportDocumentSchema');
     expect(prompt.system).toContain('JSON 键名必须严格使用 Schema 定义的英文键名');
     expect(prompt.system).toContain('coreInfo.summary 必须采用');
+    expect(prompt.system).toContain('focusReason.reason 必须是交易决策式完整段落');
     expect(prompt.system).toContain('不要生成独立的项目背景章节');
   });
   it('validates evidence ids and renders a readable Chinese document', () => {
