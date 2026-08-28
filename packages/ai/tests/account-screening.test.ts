@@ -49,6 +49,11 @@ describe('AccountScreeningService', () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ reason }))]));
     await expect(service.classify(input)).resolves.toMatchObject({ decision: 'blocked', accountType: 'PERSONAL' });
   });
+  it('keeps an official NFT collection when the relay mislabels it as KOL', async () => {
+    const reason = '简介证据：The first NFT collection on ZEC；推文证据：发布 mint 和白名单安排；粉丝/认证证据：粉丝数2342，未认证；项目类型结论：NFT 官方项目。';
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'KOL', reason }))]));
+    await expect(service.classify({ ...input, handle: 'zec_bit', displayName: 'Zec Bit', bio: 'The first NFT collection on ZEC', sourceText: 'Mint soon; whitelist is open.' })).resolves.toMatchObject({ decision: 'allowed', accountType: 'NFT' });
+  });
   it('blocks traditional stock or broker profiles as TRADFI instead of treating them as KOL', async () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '简介证据：像素经纪人通过工作获得真实股票；推文证据：未提供；粉丝/认证证据：粉丝数4884，未认证；项目类型结论：项目账号。' }))]));
     await expect(service.classify({ ...input, handle: 'thefirmbrokers', displayName: 'FIRM BROKERS', bio: '5,000 pixel brokers who work every hour and pay you in real stocks.' })).resolves.toMatchObject({ decision: 'blocked', accountType: 'TRADFI' });

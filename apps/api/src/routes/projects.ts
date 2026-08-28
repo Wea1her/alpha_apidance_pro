@@ -82,10 +82,14 @@ function toProject(row: ProjectRow) {
 export function registerProjectRoutes(app: FastifyInstance, options: ProjectRoutesOptions): void {
   app.get<{ Querystring: { filter?: string; limit?: string } }>('/api/projects', async (request, reply) => {
     const filter = request.query.filter ?? 'all';
-    // The private desk currently tracks several hundred projects. Keep a
-    // generous upper bound so the UI does not mistake the old 100-row safety
-    // cap for the real project count.
-    const limit = Math.min(Math.max(Number.parseInt(request.query.limit ?? '50', 10) || 50, 1), 1000);
+    // `limit=all` is used by the desk UI so client-side pagination can operate
+    // on the complete project pool. Numeric limits remain supported for
+    // lightweight callers and backwards compatibility.
+    const requestedLimit = (request.query.limit ?? '50').trim().toLowerCase();
+    const parsedLimit = Number.parseInt(requestedLimit, 10);
+    const limit = requestedLimit === 'all'
+      ? undefined
+      : Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
     const clauses: string[] = [];
     const params: unknown[] = [];
     const approvedClause = `p.status <> 'excluded' and exists (select 1 from screening_decisions sd where sd.project_id = p.id and sd.decision in ('allowed', 'manual_allowed'))`;
@@ -99,6 +103,7 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
     else if (filter === 'all') clauses.push(approvedClause);
     else if (filter !== 'all') return reply.code(400).send({ error: 'invalid_filter' });
     const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
+    const limitClause = limit === undefined ? '' : 'limit $1';
     const rows = await options.database.query<ProjectRow>(
       `select p.id, p.x_user_id, p.current_handle, p.display_name, p.avatar_url, p.status, p.exclusion_reason,
               p.highest_star, p.highest_common_follow_count, p.surge_until,
@@ -113,8 +118,8 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
               (select am.desired_state from alpha_monitors am where am.project_id = p.id) as monitor_desired_state
        from projects p ${where}
        order by (p.surge_until > now()) desc, p.highest_star desc, p.updated_at desc
-       limit $1`,
-      [limit]
+       ${limitClause}`,
+      limit === undefined ? [] : [limit]
     );
     return { items: rows.rows.map(toProject), nextCursor: null };
   });

@@ -38,4 +38,26 @@ describe('project tweet history route', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json<{ items: Array<{ handle: string }> }>().items.map((item) => item.handle)).toEqual(['two']);
   });
+
+  it('returns the complete approved pool when limit=all', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    await database.query(`
+      insert into projects (x_user_id, current_handle, status, highest_star)
+      select 'all-' || n::text, 'all_project_' || n::text, 'active', 1
+      from generate_series(1, 1005) as n
+    `);
+    await database.query(`
+      insert into screening_decisions (project_id, decision, account_type, reason)
+      select id, 'allowed', 'PROJECT', '项目账号' from projects where x_user_id like 'all-%'
+    `);
+    const app = Fastify(); apps.push(app); registerProjectRoutes(app, { database }); await app.ready();
+
+    const response = await app.inject({ method: 'GET', url: '/api/projects?filter=all&limit=all' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: Array<{ handle: string }> }>().items).toHaveLength(1005);
+
+    const numericResponse = await app.inject({ method: 'GET', url: '/api/projects?filter=all&limit=2000' });
+    expect(numericResponse.statusCode).toBe(200);
+    expect(numericResponse.json<{ items: Array<{ handle: string }> }>().items).toHaveLength(1005);
+  });
 });

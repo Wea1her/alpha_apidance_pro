@@ -105,6 +105,15 @@ function hasTraditionalFinanceScope(value: string): boolean {
   return /(?:传统金融|股票|证券|新股|IPO|经纪商|股票研究|证券研究|equities|stock broker|brokerage|real stocks?)/i.test(value);
 }
 
+/** NFT 官方项目属于允许保留的短期项目类型；仅个人收藏者应被过滤。 */
+function isOfficialNftProject(value: string): boolean {
+  const hasNft = /(?:\bnft\b|\bpfp\b|digital collectibles?|数字藏品|头像项目|收藏品|collectible)/iu.test(value);
+  if (!hasNft) return false;
+  const isPersonal = /(?:nft\s*(?:collector|holder|trader)|pfp\s*holder|个人收藏者?|个人藏品|我的藏品|分享个人收藏|转售藏品)/iu.test(value);
+  if (isPersonal) return false;
+  return /(?:官方|项目|collection|mint|铸造|发行|drop|roadmap|白名单|whitelist|built|launch|铸币)/iu.test(value);
+}
+
 function applyScopeGuard(input: ScreeningInput, output: ScreeningOutput): ScreeningOutput {
   const profile = [input.handle, input.displayName, input.bio, input.sourceText].filter(Boolean).join(' ');
   // Keep traditional stock/broker accounts auditable as a distinct blocked
@@ -112,6 +121,18 @@ function applyScopeGuard(input: ScreeningInput, output: ScreeningOutput): Screen
   if (hasTraditionalFinanceScope(profile) && !hasCryptoScope(profile)) {
     const reason = `${output.reason} 范围校验：简介/资料仅体现传统股票或经纪业务，未发现加密项目、代币、链上产品、测试网或空投信号，归类为传统金融/非加密项目。`;
     return { ...output, accountType: 'TRADFI', reason: reason.slice(0, 500) };
+  }
+  return output;
+}
+
+function applyNftProjectGuard(input: ScreeningInput, output: ScreeningOutput): ScreeningOutput {
+  const evidence = [input.handle, input.displayName, input.bio, input.sourceText, output.reason].filter(Boolean).join(' ');
+  if (output.accountType !== 'NFT' && isOfficialNftProject(evidence)) {
+    return {
+      ...output,
+      accountType: 'NFT',
+      reason: `${output.reason} 类型校验：简介/推文明确指向 NFT 官方项目、collection 或发行活动，非个人收藏者，按允许的 NFT 项目保留。`.slice(0, 500)
+    };
   }
   return output;
 }
@@ -154,7 +175,7 @@ export class AccountScreeningService {
           user: JSON.stringify(input),
           schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT|TRADFI","reason":"中文具体判断理由","confidence":0.0}'
         });
-        const output = applyScopeGuard(input, parseModelOutput(result.response.text));
+        const output = applyNftProjectGuard(input, applyScopeGuard(input, parseModelOutput(result.response.text)));
         const blocked = BLOCKED_TYPES.has(output.accountType);
         return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: detailedChineseReason(input, output.accountType, output.reason), providerName: result.provider.name, model: result.response.model, attempts };
       } catch (error) {

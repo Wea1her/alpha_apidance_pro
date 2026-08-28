@@ -147,7 +147,8 @@ function App() {
     const timeoutId = window.setTimeout(() => { timedOut = true; controller.abort(); }, 30_000);
     const endpointFilter = filter === 'excluded' ? 'excluded' : 'all';
     try {
-      const payload = await api<{ items: Array<Record<string, unknown>> }>(`/api/projects?filter=${endpointFilter}&limit=1000`, { signal: controller.signal });
+      // Fetch the complete pool; the UI applies the 30-item page size below.
+      const payload = await api<{ items: Array<Record<string, unknown>> }>(`/api/projects?filter=${endpointFilter}&limit=all`, { signal: controller.signal });
       // A response for a previous filter is intentionally discarded.
       if (requestId !== loadRequestId.current) return;
       const nextProjects = payload.items.map(mapProject);
