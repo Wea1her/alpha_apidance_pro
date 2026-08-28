@@ -72,4 +72,13 @@ describe('project tweet history route', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json<{ items: Array<{ handle: string; playbookCategory: string }> }>().items.find((item) => item.handle === 'launchpad_xyz')?.playbookCategory).toBe('Launchpad');
   });
+
+  it('classifies every .fun account ID as Launchpad', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name, status) values ('fun-user', 'rocket.fun', 'Rocket Swap', 'active') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '发射台项目')`, [project.rows[0].id]);
+    const app = Fastify(); apps.push(app); registerProjectRoutes(app, { database }); await app.ready();
+    const response = await app.inject({ method: 'GET', url: '/api/projects?filter=all&limit=all' });
+    expect(response.json<{ items: Array<{ handle: string; playbookCategory: string }> }>().items.find((item) => item.handle === 'rocket.fun')?.playbookCategory).toBe('Launchpad');
+  });
 });

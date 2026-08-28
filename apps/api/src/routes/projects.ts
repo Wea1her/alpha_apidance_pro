@@ -39,6 +39,9 @@ function classifyChain(context: string): string {
 
 function classifyPlaybook(context: string): string {
   const value = context.toLowerCase();
+  // X account IDs ending in `.fun` are reserved for launchpad projects by
+  // convention, even when their bio also mentions trading or swaps.
+  if (/(?:^|[\s@])[a-z0-9_-]+\.fun(?:$|\s)/iu.test(value)) return 'Launchpad';
   const playbooks: Array<[string, string[]]> = [
     // Launchpad is a standalone playbook. Check it before trading keywords so
     // a launcher that also mentions swaps is not mislabeled as DeFi.
