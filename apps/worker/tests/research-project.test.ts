@@ -145,7 +145,7 @@ describe('research-project handler', () => {
     expect(result.rows[0]?.rendered_markdown).not.toContain('共同关注人数13-21人');
     expect(result.rows[0]?.rendered_markdown).not.toContain('47f3d1e4-8ddb-4086-a45e-485248500a5f');
     expect(result.rows[0]?.rendered_markdown).toContain('早期公开构建阶段（基于当前可见信号）');
-    expect(result.rows[0]?.rendered_markdown).toContain('项目公开背景资料基于账号简介、历史推文和所属生态整理');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('项目背景');
     expect(result.rows[0]?.rendered_markdown).not.toContain('公开进展暂未确认，等待后续更新');
     expect(result.rows[0]?.rendered_markdown).not.toContain('无法确认知名 Crypto 背书账号');
     expect(result.rows[0]?.rendered_markdown).not.toContain('当前暂无正向证据');

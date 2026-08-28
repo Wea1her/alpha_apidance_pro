@@ -130,10 +130,8 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const focusNarrative = typeof first(raw, ['focusReason', 'focus']) === 'string' ? stripSectionPrefix(text(first(raw, ['focusReason', 'focus']))) : '';
   const thesisValues = strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).filter((item) => !PLACEHOLDER_TEXT.has(item));
   const productSummary = tracks.find((track) => track.key === 'product')?.summary;
-  const backgroundCandidate = first(raw, ['background', 'projectBackground', '项目背景', '项目背景/背书账号']) ?? first(project, ['background', 'projectBackground', '项目背景']);
-  const background = sectionValue(backgroundCandidate, '项目背景', '项目公开背景资料基于账号简介、历史推文和所属生态整理，具体团队与交付仍需后续公开证据验证。');
   const summaryCandidate = first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']);
-  const summary = sectionValue(summaryCandidate, '项目核心信息', thesisValues[0] ?? productSummary ?? background);
+  const summary = sectionValue(summaryCandidate, '项目核心信息', thesisValues[0] ?? productSummary ?? '暂无公开证据，无法确认项目定位。');
   const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sectionValue(item, '优点')).filter((item) => item && !/暂无(?:明确)?优势|暂无正向证据/u.test(item));
   const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sectionValue(item, '缺点')).filter((item) => item && !/暂无(?:明确)?缺点|暂无负向证据/u.test(item));
   const trackStrengths = tracks.filter((track) => track.score >= 5 && !PLACEHOLDER_TEXT.has(track.summary)).map((track) => `${track.title}：${track.summary}`).slice(0, 3);
@@ -150,7 +148,7 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   const stage = substantive(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '早期公开构建阶段（基于当前可见信号）');
   const normalizedTags = strings(first(raw, ['tags', '标签'])).map(stripSectionPrefix).flatMap((item) => item.split(/[、,，]/u).map((tag) => tag.trim()).filter(Boolean));
   return {
-    coreInfo: { projectName: text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', 'xHandle', 'xAccount', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'xHandle', 'xAccount', 'account', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary, stage, background },
+    coreInfo: { projectName: text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', 'xHandle', 'xAccount', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'xHandle', 'xAccount', 'account', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary, stage },
     focusReason: { currentProgress, strengths: normalizedStrengths, weaknesses: normalizedWeaknesses, reason: sectionValue(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, '关注理由', currentProgress) },
     tags: normalizedTags.length ? normalizedTags : ['早期项目', '待持续验证'],
     thesis: thesisValues.length ? thesisValues.map(stripSectionPrefix) : [focusNarrative ? `核心判断：${focusNarrative}` : '核心判断：项目是否能完成公开交付，是后续价值验证的关键。'],
@@ -244,7 +242,7 @@ function assertReportComplete(report: ReportDocument): void {
   if (!report.playbook.some(meaningful)) failures.push('playbook');
   // L2 tracks, independent review and scores are retained internally for
   // auditability, but the reader-facing report intentionally exposes only
-  // sections 1-7. Missing hidden fields must not make an otherwise readable
+  // sections 1-6. Missing hidden fields must not make an otherwise readable
   // Chinese report fail and disappear from the desk.
   if (failures.length) throw new Error(`research output incomplete: ${failures.join(', ')}`);
 }
@@ -384,7 +382,7 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
         completion = await router.complete({
           purpose: 'research',
           system: `${prompt.system}\n不得输出占位值。每个字段必须给出基于搜索或信号的具体判断；若没有证据，写明“暂无公开证据”并解释原因。`,
-          user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请优先补齐 1-7 节可读中文正文，每节都要有具体事实、判断和不确定性；内部六赛道、评分和复核字段可基于已有证据归一化。`,
+          user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请优先补齐 1-6 节可读中文正文，每节都要有具体事实、判断和不确定性；内部六赛道、评分和复核字段可基于已有证据归一化。`,
           schema: 'ReportDocumentSchema'
         });
         report = parseReport(completion.response.text, evidence.map((item) => item.id), project);
