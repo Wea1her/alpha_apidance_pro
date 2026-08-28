@@ -108,6 +108,25 @@ describe('research-project handler', () => {
     expect(promptUser).not.toContain('已完成事项、未完成事项');
   });
 
+  it('replaces unfilled template placeholders instead of publishing them', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('placeholder-user', 'placeholder', 'Placeholder Project') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    await database.query(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'placeholder-raw', '{}'::jsonb, 'decoded')`);
+    const raw = await database.query<{ id: string }>('select id from raw_events limit 1');
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'placeholder-user', 'new_tweet', now(), 'Soon', '{}'::jsonb)`, [raw.rows[0].id, project.rows[0].id]);
+    const placeholderAdapter: AiProviderAdapter = {
+      profile: { id: 'placeholder', name: 'placeholder', baseUrl: 'https://ai.test', screeningModel: 'screen', researchModel: 'research', capabilities: ['chat', 'structured_output'], role: 'main', enabled: true, health: 'healthy' },
+      complete: async (request) => { const evidenceId = request.user.match(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi)?.at(-1) ?? '00000000-0000-4000-8000-000000000001'; const report = reportFor(evidenceId); report.coreInfo.summary = '定位为暂无公开证据，通过暂无公开证据服务暂无公开证据；当前暂无公开证据。'; report.focusReason.strengths = ['作为暂无公开证据的早期布局者，暂无公开证据带来暂无公开证据。']; report.focusReason.weaknesses = ['暂无公开证据导致暂无公开证据；若暂无公开证据不成立，暂无公开证据会放大。']; report.focusReason.reason = '值得小仓试错。该账号获得暂无公开证据，叠加暂无公开证据，存在暂无公开证据机会。'; return { text: JSON.stringify(report), model: 'research' }; },
+      healthCheck: async () => 'healthy'
+    };
+    await createResearchProjectHandler(database, new AiProviderRouter([placeholderAdapter]))({ id: 'job-placeholder', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:placeholder-user', payload: { projectId: project.rows[0].id } });
+    const result = await database.query<{ rendered_markdown: string }>('select rendered_markdown from report_versions');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('核心定位/叙事');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('暂无公开证据，通过暂无公开证据服务');
+    expect(result.rows[0]?.rendered_markdown).toContain('持续观察。当前公开资料和有效信号不足');
+  });
+
   it('skips excluded projects before calling AI', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, status) values ('43', 'excluded', 'excluded') returning id`);
