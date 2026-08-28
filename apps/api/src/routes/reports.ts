@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ApiDatabase } from '../types.js';
 
+const MIN_REPORT_VERSION = 2;
+
 /** Hide internal research sections from legacy stored reports at read time. */
 function publicReportMarkdown(markdown: string | null): string | null {
   if (!markdown) return markdown;
@@ -26,7 +28,7 @@ export function registerReportRoutes(app: FastifyInstance, options: { database: 
     if (!eligible.rows[0]) return { items: [] };
     const result = await options.database.query(
       `select id, version, status, change_summary, created_at, completed_at
-       from report_versions where project_id = $1 order by version desc`,
+       from report_versions where project_id = $1 and version >= ${MIN_REPORT_VERSION} order by version desc`,
       [request.params.id]
     );
     return { items: result.rows };
@@ -34,7 +36,7 @@ export function registerReportRoutes(app: FastifyInstance, options: { database: 
 
   app.get<{ Params: { id: string; version: string } }>('/api/projects/:id/reports/:version', async (request, reply) => {
     const version = Number.parseInt(request.params.version, 10);
-    if (!Number.isInteger(version) || version < 1) return reply.code(400).send({ error: 'invalid_version' });
+    if (!Number.isInteger(version) || version < MIN_REPORT_VERSION) return reply.code(400).send({ error: 'invalid_version' });
     const eligible = await options.database.query<{ id: string }>(
       `select p.id from projects p
        where p.id = $1 and p.status <> 'excluded'
@@ -53,7 +55,7 @@ export function registerReportRoutes(app: FastifyInstance, options: { database: 
       rendered_markdown: string | null; change_summary: unknown; created_at: string; completed_at: string | null;
     }>(
       `select id, version, status, structured_document, rendered_markdown, change_summary, created_at, completed_at
-       from report_versions where project_id = $1 and version = $2`,
+       from report_versions where project_id = $1 and version = $2 and version >= ${MIN_REPORT_VERSION}`,
       [request.params.id, version]
     );
     const row = result.rows[0];

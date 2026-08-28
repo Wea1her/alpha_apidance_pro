@@ -300,11 +300,13 @@ async function ensureCitationEvidence(database: JobDatabase, project: ProjectRow
 
 async function ensureReportVersion(database: JobDatabase, projectId: string, triggerSignalId: string | null): Promise<ReportVersionRow> {
   const latest = await database.query<ReportVersionRow>(
-    `select id, version, status from report_versions where project_id = $1 order by version desc limit 1`,
+    `select id, version, status from report_versions where project_id = $1 and version >= 2 order by version desc limit 1`,
     [projectId]
   );
   if (latest.rows[0] && ['queued', 'collecting', 'generating'].includes(latest.rows[0].status)) return latest.rows[0];
-  const version = (latest.rows[0]?.version ?? 0) + 1;
+  // V2 is the first valid report template. Numeric versions after that are
+  // immutable revisions of the V2 document, never a return to V1.
+  const version = Math.max(latest.rows[0]?.version ?? 1, 1) + 1;
   const inserted = await database.query<ReportVersionRow>(
     `insert into report_versions (project_id, version, trigger_signal_id, status)
      values ($1, $2, $3, 'queued') returning id, version, status`,

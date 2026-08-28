@@ -111,6 +111,7 @@ function hasTraditionalFinanceScope(value: string): boolean {
 function isOfficialNftProject(value: string): boolean {
   const hasNft = /(?:\bnft\b|\bpfp\b|digital collectibles?|数字藏品|头像项目|收藏品|collectible)/iu.test(value);
   if (!hasNft) return false;
+  if (/(?:不属于|不是|非)[^。；\n]{0,80}(?:\bNFT\b|\bPFP\b|数字藏品|收藏品)/iu.test(value)) return false;
   const isPersonal = /(?:nft\s*(?:collector|holder|trader)|pfp\s*holder|个人收藏者?|个人藏品|我的藏品|分享个人收藏|转售藏品)/iu.test(value);
   if (isPersonal) return false;
   return /(?:官方|项目|collection|mint|铸造|发行|drop|roadmap|白名单|whitelist|built|launch|铸币)/iu.test(value);
