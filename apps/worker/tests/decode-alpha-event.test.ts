@@ -38,6 +38,22 @@ describe('decode-alpha-event realtime notifications', () => {
     expect(project.rows[0]?.surge_until).not.toBeNull();
   });
 
+  it('synchronizes the current common-follow count while keeping star history non-decreasing', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const handler = createDecodeAlphaEventHandler(database);
+    for (const [index, count] of [12, 8].entries()) {
+      const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', $1, '{}'::jsonb, 'pending') returning id`, [`sync-count-${index}`]);
+      await handler({
+        id: `job-sync-count-${index}`, type: 'decode_alpha_event', priority: 1, status: 'running', idempotencyKey: `decode:sync-count-${index}`,
+        payload: { rawEventId: raw.rows[0].id, event: { type: 'common_follow', externalId: `sync-count-event-${index}`, xUserId: 'sync-count-user', handle: 'sync_count', commonFollowCount: count, occurredAt: new Date(`2026-08-27T03:0${index}:00Z`), payload: { follow_user: { id_str: 'sync-count-user', screen_name: 'sync_count' } } } }
+      });
+    }
+    const project = await database.query<{ current_common_follow_count: number; highest_common_follow_count: number; highest_star: number }>(
+      `select current_common_follow_count, highest_common_follow_count, highest_star from projects where x_user_id = 'sync-count-user'`
+    );
+    expect(project.rows[0]).toMatchObject({ current_common_follow_count: 8, highest_common_follow_count: 12, highest_star: 3 });
+  });
+
   it('does not materialize later Alpha pushes for an already excluded project', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, status, excluded_at, exclusion_reason) values ('excluded-user', 'excluded_project', 'excluded', now(), 'AI 初筛自动拦截：个人账号') returning id`);

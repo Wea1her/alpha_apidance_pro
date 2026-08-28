@@ -39,6 +39,24 @@ describe('project tweet history route', () => {
     expect(response.json<{ items: Array<{ handle: string }> }>().items.map((item) => item.handle)).toEqual(['two']);
   });
 
+  it('sorts projects inside a star category by common-follow count instead of push time', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    await database.query(`
+      insert into projects (x_user_id, current_handle, status, highest_star, highest_common_follow_count, current_common_follow_count, updated_at)
+      values ('sort-low', 'sort_low', 'active', 2, 5, 5, now()),
+             ('sort-high', 'sort_high', 'active', 2, 12, 12, now() - interval '2 hours'),
+             ('sort-mid', 'sort_mid', 'active', 2, 8, 8, now() - interval '1 hour')
+    `);
+    await database.query(`
+      insert into screening_decisions (project_id, decision, account_type, reason)
+      select id, 'allowed', 'PROJECT', '项目账号' from projects where x_user_id like 'sort-%'
+    `);
+    const app = Fastify(); apps.push(app); registerProjectRoutes(app, { database }); await app.ready();
+    const response = await app.inject({ method: 'GET', url: '/api/projects?filter=star_2&limit=all' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: Array<{ handle: string }> }>().items.map((item) => item.handle)).toEqual(['sort_high', 'sort_mid', 'sort_low']);
+  });
+
   it('returns the complete approved pool when limit=all', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     await database.query(`

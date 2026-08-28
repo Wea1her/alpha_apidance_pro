@@ -66,17 +66,18 @@ export function createDecodeAlphaEventHandler(database: JobDatabase) {
       return;
     }
     const project = await database.query<{ id: string }>(
-      `insert into projects (x_user_id, current_handle, display_name, avatar_url, highest_star, highest_common_follow_count, updated_at)
-       values ($1, $2, $3, $4, $5, $6, now())
+      `insert into projects (x_user_id, current_handle, display_name, avatar_url, highest_star, highest_common_follow_count, current_common_follow_count, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, now())
        on conflict (x_user_id) do update set
          current_handle = case when excluded.current_handle <> '' then excluded.current_handle else projects.current_handle end,
          display_name = case when excluded.display_name <> '' then excluded.display_name else projects.display_name end,
          avatar_url = case when excluded.avatar_url is not null and excluded.avatar_url <> '' then excluded.avatar_url else projects.avatar_url end,
          highest_star = greatest(projects.highest_star, excluded.highest_star),
          highest_common_follow_count = greatest(projects.highest_common_follow_count, excluded.highest_common_follow_count),
+         current_common_follow_count = case when $8::boolean then excluded.current_common_follow_count else projects.current_common_follow_count end,
          updated_at = now()
        returning id`,
-      [event.xUserId, handle, name, event.avatarUrl ?? null, star, event.commonFollowCount ?? 0]
+      [event.xUserId, handle, name, event.avatarUrl ?? null, star, event.commonFollowCount ?? 0, event.commonFollowCount ?? 0, event.commonFollowCount !== undefined]
     );
     const projectId = project.rows[0]?.id;
     if (!projectId) throw new Error(`Project upsert returned no id for ${event.xUserId}`);

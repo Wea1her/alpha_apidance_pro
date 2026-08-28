@@ -5,7 +5,7 @@ export interface ProjectRoutesOptions { database: ApiDatabase; }
 
 interface ProjectRow {
   id: string; x_user_id: string; current_handle: string; display_name: string; avatar_url: string | null;
-  status: string; highest_star: number; highest_common_follow_count: number; surge_until: string | null;
+  status: string; highest_star: number; highest_common_follow_count: number; current_common_follow_count: number; surge_until: string | null;
   exclusion_reason: string | null; screening_account_type?: string | null; screening_reason?: string | null;
   latest_signal_context?: string | null;
   has_ca: boolean; latest_signal_at: string | null; report_status: string | null; screening_decision?: string | null; monitor_actual_state?: string | null; monitor_desired_state?: string | null;
@@ -69,6 +69,7 @@ function toProject(row: ProjectRow) {
     status: row.status,
     highestStar: row.highest_star,
     highestCommonFollowCount: row.highest_common_follow_count,
+    currentCommonFollowCount: row.current_common_follow_count,
     surge: Boolean(row.surge_until && new Date(row.surge_until).getTime() > Date.now()),
     surgeUntil: row.surge_until,
     hasCa: row.has_ca,
@@ -112,7 +113,7 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
     const limitClause = limit === undefined ? '' : 'limit $1';
     const rows = await options.database.query<ProjectRow>(
       `select p.id, p.x_user_id, p.current_handle, p.display_name, p.avatar_url, p.status, p.exclusion_reason,
-              p.highest_star, p.highest_common_follow_count, p.surge_until,
+              p.highest_star, p.highest_common_follow_count, p.current_common_follow_count, p.surge_until,
               exists (select 1 from signals ca where ca.project_id = p.id and ca.type = 'ca') as has_ca,
               (select max(s.occurred_at) from signals s where s.project_id = p.id) as latest_signal_at,
               (select coalesce(s.content, '') || ' ' || coalesce(s.data::text, '') from signals s where s.project_id = p.id order by s.occurred_at desc limit 1) as latest_signal_context,
@@ -123,7 +124,9 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
               (select am.actual_state from alpha_monitors am where am.project_id = p.id) as monitor_actual_state,
               (select am.desired_state from alpha_monitors am where am.project_id = p.id) as monitor_desired_state
        from projects p ${where}
-       order by (p.surge_until > now()) desc, p.highest_star desc, p.updated_at desc
+       order by (p.surge_until > now()) desc,
+                ${starFilter ? 'p.current_common_follow_count desc,' : ''}
+                p.highest_star desc, p.updated_at desc
        ${limitClause}`,
       limit === undefined ? [] : [limit]
     );
@@ -162,7 +165,7 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
   app.get<{ Params: { id: string } }>('/api/projects/:id', async (request, reply) => {
     const result = await options.database.query(
       `select p.id, p.x_user_id, p.current_handle, p.display_name, p.avatar_url, p.status, p.exclusion_reason,
-              p.highest_star, p.highest_common_follow_count, p.surge_until,
+              p.highest_star, p.highest_common_follow_count, p.current_common_follow_count, p.surge_until,
               p.created_at, p.updated_at, p.excluded_at, p.exclusion_reason,
               exists (select 1 from signals ca where ca.project_id = p.id and ca.type = 'ca') as has_ca,
               (select max(s.occurred_at) from signals s where s.project_id = p.id) as latest_signal_at,
