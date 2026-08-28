@@ -40,6 +40,9 @@ function classifyChain(context: string): string {
 function classifyPlaybook(context: string): string {
   const value = context.toLowerCase();
   const playbooks: Array<[string, string[]]> = [
+    // Launchpad is a standalone playbook. Check it before trading keywords so
+    // a launcher that also mentions swaps is not mislabeled as DeFi.
+    ['Launchpad', ['launchpad', 'launch pad', 'token launcher', '发射台', '项目发射', '代币发射', '发射平台']],
     ['空投 / 积分 / 测试网', ['airdrop', '空投', 'points', '积分', 'testnet', '测试网', '任务']],
     ['DeFi / 交易', ['defi', 'swap', 'lending', '借贷', 'perp', '永续', 'trading', '交易']],
     ['质押 / 收益', ['staking', '质押', 'restaking', '再质押', 'yield', '收益']],

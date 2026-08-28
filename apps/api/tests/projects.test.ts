@@ -60,4 +60,16 @@ describe('project tweet history route', () => {
     expect(numericResponse.statusCode).toBe(200);
     expect(numericResponse.json<{ items: Array<{ handle: string }> }>().items).toHaveLength(1005);
   });
+
+  it('classifies launchpad projects separately from DeFi', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name, status, highest_star) values ('launchpad-user', 'launchpad_xyz', 'Launchpad XYZ', 'active', 2) returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '发射台项目')`, [project.rows[0].id]);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'launchpad-raw', '{}'::jsonb, 'decoded') returning id`);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'launchpad-user', 'profile_change', now(), 'Launchpad token launcher with swap integrations', '{}'::jsonb)`, [raw.rows[0].id, project.rows[0].id]);
+    const app = Fastify(); apps.push(app); registerProjectRoutes(app, { database }); await app.ready();
+    const response = await app.inject({ method: 'GET', url: '/api/projects?filter=all&limit=all' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: Array<{ handle: string; playbookCategory: string }> }>().items.find((item) => item.handle === 'launchpad_xyz')?.playbookCategory).toBe('Launchpad');
+  });
 });
