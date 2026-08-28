@@ -10,10 +10,13 @@ describe('research report document', () => {
     const prompt = buildResearchReportPrompt({ project: { name: 'Northstar', handle: '@northstar' }, signals: ['Alpha 共同关注 12'], evidence: [evidenceId] });
     expect(prompt.user).toContain('产品与需求');
     expect(prompt.user).toContain('独立复核轮');
-    expect(prompt.user).toContain('至少 2-4 个完整句子');
+    expect(prompt.user).toContain('项目名 (@账号) 定位为');
+    expect(prompt.user).toContain('商业模式或收入分配');
+    expect(prompt.user).not.toContain('已完成事项、未完成事项');
     expect(prompt.user).toContain('不要单独输出或猜测背书账号');
     expect(prompt.system).toContain('ReportDocumentSchema');
     expect(prompt.system).toContain('JSON 键名必须严格使用 Schema 定义的英文键名');
+    expect(prompt.system).toContain('coreInfo.summary 必须采用');
   });
   it('validates evidence ids and renders a readable Chinese document', () => {
     const parsed = ReportDocumentSchema.parse(report);
