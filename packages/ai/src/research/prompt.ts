@@ -7,6 +7,9 @@ export interface ResearchPromptInput {
   webSearch?: readonly string[];
 }
 
+/** 正式报告模板版本。数据库中的 version 仍表示同一项目的内部修订序号。 */
+export const REPORT_TEMPLATE_VERSION = 3 as const;
+
 /** 固定写作模板：每次请求都会同时注入 user 和 system prompt，确保主/备用 Grok 一致。 */
 export const REPORT_STYLE_TEMPLATE = [
   'coreInfo.summary：{项目名} (@{账号}) 定位为{核心定位/叙事}，通过{产品机制与用户参与方式}服务{目标用户}；项目覆盖{链/生态}，以{收入或激励机制}形成参与动力；当前{集成、上线或测试进展}，关键窗口是{主网、campaign、白名单、NFT mint 或首发 meme 等}，后续需验证{具体交付与增长指标}。',
@@ -17,6 +20,7 @@ export const REPORT_STYLE_TEMPLATE = [
 
 export function buildResearchReportPrompt(input: ResearchPromptInput): { system: string; user: string } {
   const user = [
+    `正式模板：V${REPORT_TEMPLATE_VERSION}（前端不展示版本号）`,
     `项目：${input.project.name}`,
     `X 账号：${input.project.handle}`,
     `阶段：${input.project.stage ?? '暂未确认'}`,
@@ -39,7 +43,7 @@ export function buildResearchReportPrompt(input: ResearchPromptInput): { system:
     `\n可用 Evidence：\n${input.evidence.length ? input.evidence.map((item) => `- ${item}`).join('\n') : '- 暂无'}`,
     `\n联网搜索结果（仅作为公开资料线索，必须结合 Evidence 谨慎判断）：\n${input.webSearch?.length ? input.webSearch.map((item) => `- ${item}`).join('\n') : '- 未找到公开搜索结果，请明确标注“暂无公开资料”'}`
   ].join('\n');
-  return { system: `你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。顶层只能包含 coreInfo、focusReason、tags 三个键：coreInfo 只能包含 projectName、handle、summary、stage；focusReason 只能包含 currentProgress、strengths、weaknesses、reason；tags 是字符串数组。禁止输出任何其他键。coreInfo.summary 必须采用“项目名 (@账号) 定位为……”的项目定位模板，具体展开定位、机制、用户玩法、生态、收入机制、当前进展和验证点，不能只写泛化摘要；不要生成独立的项目背景章节或背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据；focusReason.reason 必须是交易决策式完整段落，首句明确给出“值得小仓试错/持续观察/暂不纳入”，并说明早期窗口、证据缺口、跟踪动作和不重仓边界。以下是必须遵循的固定写作模板（花括号必须替换为真实证据）：\n${REPORT_STYLE_TEMPLATE}\n只输出模板要求的六节正文，不要进行 L2 六赛道深挖、独立复核轮、评分总览、风险与证据链、核心论点或参与玩法等额外分析环节。中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入章节编号，禁止把多个章节合并到同一个字段。`, user };
+  return { system: `你是严谨的中文加密项目研究员，当前使用正式的 V${REPORT_TEMPLATE_VERSION} 报告模板。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。顶层只能包含 coreInfo、focusReason、tags 三个键：coreInfo 只能包含 projectName、handle、summary、stage；focusReason 只能包含 currentProgress、strengths、weaknesses、reason；tags 是字符串数组。禁止输出任何其他键。coreInfo.summary 必须采用“项目名 (@账号) 定位为……”的项目定位模板，具体展开定位、机制、用户玩法、生态、收入机制、当前进展和验证点，不能只写泛化摘要；不要生成独立的项目背景章节或背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据；focusReason.reason 必须是交易决策式完整段落，首句明确给出“值得小仓试错/持续观察/暂不纳入”，并说明早期窗口、证据缺口、跟踪动作和不重仓边界。以下是必须遵循的固定写作模板（花括号必须替换为真实证据）：\n${REPORT_STYLE_TEMPLATE}\n只输出模板要求的六节正文，不要进行 L2 六赛道深挖、独立复核轮、评分总览、风险与证据链、核心论点或参与玩法等额外分析环节。中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入章节编号，禁止把多个章节合并到同一个字段。`, user };
 }
 
 export type ResearchReportDocument = ReportDocument;

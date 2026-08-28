@@ -54,13 +54,14 @@ describe('research-project handler', () => {
     await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, '42', 'common_follow', now(), '你关注的 12 个用户也关注了ta', '{}'::jsonb)`, [raw.rows[0].id, project.rows[0].id]);
     const calls = { count: 0 };
     await createResearchProjectHandler(database, new AiProviderRouter([adapter(calls, '\n补充说明：以上结论需要持续验证。')]))({ id: 'job', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:42', payload: { projectId: project.rows[0].id } });
-    const versions = await database.query<{ status: string; rendered_markdown: string | null }>('select status, rendered_markdown from report_versions');
+    const versions = await database.query<{ status: string; version: number; rendered_markdown: string | null }>('select status, version, rendered_markdown from report_versions');
     expect(calls.count).toBe(1);
     expect(versions.rows[0]?.status).toBe('ready');
+    expect(versions.rows[0]?.version).toBe(3);
     expect(versions.rows[0]?.rendered_markdown).toContain('AI 调研报告');
   });
 
-  it('sends post heat and account activity metrics to the V2 prompt', async () => {
+  it('sends post heat and account activity metrics to the V3 prompt', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('metrics-user', 'metrics', 'Metrics Project') returning id`);
     await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);

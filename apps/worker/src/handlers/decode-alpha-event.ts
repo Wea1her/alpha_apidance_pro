@@ -160,7 +160,7 @@ export function createDecodeAlphaEventHandler(database: JobDatabase) {
         // A project may have been screened while it was low-star and never
         // received a research job (for example after a worker restart). The
         // first high-star event is a safe idempotent opportunity to schedule
-        // the V2 report; JobStore prevents duplicate jobs on later events.
+        // the V3 report; JobStore prevents duplicate jobs on later events.
         await new JobStore(database).enqueue({
           type: 'research_project',
           idempotencyKey: `research:${projectId}`,

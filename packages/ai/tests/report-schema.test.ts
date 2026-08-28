@@ -10,6 +10,7 @@ describe('research report document', () => {
     expect(prompt.user).not.toContain('请完成 L2 六赛道深挖');
     expect(prompt.user).toContain('不要进行 L2 六赛道深挖');
     expect(prompt.user).toContain('项目名 (@账号) 定位为');
+    expect(prompt.user).toContain('正式模板：V3');
     expect(prompt.user).toContain('商业模式或收入分配');
     expect(prompt.user).toContain('完整连贯的中文分析');
     expect(prompt.user).toContain('首句必须明确写“值得小仓试错”“持续观察”或“暂不纳入”');
@@ -27,7 +28,7 @@ describe('research report document', () => {
     expect(prompt.system).toContain('不要进行 L2 六赛道深挖');
     expect(prompt.system).toContain('不要生成独立的项目背景章节');
   });
-  it('accepts only the six-section V2 contract and renders a readable Chinese document', () => {
+  it('accepts only the six-section V3 contract and renders a readable Chinese document', () => {
     const parsed = ReportDocumentSchema.parse(report);
     const markdown = renderReportMarkdown(parsed, new Date('2026-08-26T00:00:00Z'));
     expect(markdown).toContain('# Northstar｜AI 调研报告');

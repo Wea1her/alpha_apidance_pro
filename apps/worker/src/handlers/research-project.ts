@@ -4,6 +4,7 @@ import {
   buildResearchReportPrompt,
   renderReportMarkdown,
   ReportDocumentSchema,
+  REPORT_TEMPLATE_VERSION,
   type ReportDocument
 } from '@alpha-research/ai';
 import { OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
@@ -142,7 +143,7 @@ function parseReport(textValue: string, fallbackProject?: ProjectRow) {
         ['tags', ['tags', '标签']]
       ];
       const missingSections = requiredSections.filter(([, keys]) => first(source, keys) === undefined).map(([name]) => name);
-      if (missingSections.length) throw new Error(`research output missing V2 sections: ${missingSections.join(', ')}`);
+      if (missingSections.length) throw new Error(`research output missing V${REPORT_TEMPLATE_VERSION} sections: ${missingSections.join(', ')}`);
       return ReportDocumentSchema.parse(normalizeReport(source, fallbackProject));
     } catch (error) {
       lastError = error;
@@ -253,13 +254,13 @@ async function ensureCitationEvidence(database: JobDatabase, project: ProjectRow
 
 async function ensureReportVersion(database: JobDatabase, projectId: string, triggerSignalId: string | null): Promise<ReportVersionRow> {
   const latest = await database.query<ReportVersionRow>(
-    `select id, version, status from report_versions where project_id = $1 and version >= 2 order by version desc limit 1`,
+    `select id, version, status from report_versions where project_id = $1 and version >= ${REPORT_TEMPLATE_VERSION} order by version desc limit 1`,
     [projectId]
   );
   if (latest.rows[0] && ['queued', 'collecting', 'generating'].includes(latest.rows[0].status)) return latest.rows[0];
-  // V2 is the first valid report template. Numeric versions after that are
-  // immutable revisions of the V2 document, never a return to V1.
-  const version = Math.max(latest.rows[0]?.version ?? 1, 1) + 1;
+  // V3 is the first valid report template. Numeric versions after that are
+  // immutable internal revisions of the V3 document, never a return to V1/V2.
+  const version = Math.max(latest.rows[0]?.version ?? REPORT_TEMPLATE_VERSION - 1, REPORT_TEMPLATE_VERSION - 1) + 1;
   const inserted = await database.query<ReportVersionRow>(
     `insert into report_versions (project_id, version, trigger_signal_id, status)
      values ($1, $2, $3, 'queued') returning id, version, status`,
