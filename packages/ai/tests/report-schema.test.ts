@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ReportDocumentSchema, buildResearchReportPrompt, renderReportMarkdown, validateEvidenceReferences, REPORT_STYLE_TEMPLATE } from '../src/index.js';
+import { ReportDocumentSchema, buildResearchReportPrompt, renderReportMarkdown, REPORT_STYLE_TEMPLATE } from '../src/index.js';
 
-const evidenceId = '00000000-0000-4000-8000-000000000001';
-const trackKeys = ['product', 'technology', 'team', 'market', 'tokenomics', 'catalysts'] as const;
-const report = { coreInfo: { projectName: 'Northstar', handle: '@northstar', summary: '基础设施项目。', stage: '测试网' }, focusReason: { currentProgress: '已发布测试网。', strengths: ['团队持续交付'], weaknesses: ['代币经济尚未公布'], reason: '值得继续观察。' }, tags: ['DePIN'], thesis: ['真实使用量是核心验证点'], playbook: ['关注测试网任务'], l2Tracks: trackKeys.map((key) => ({ key, title: key, score: 6, summary: '阶段性判断。', findings: ['需要继续验证。'], evidence: [{ evidenceId, claim: 'Alpha 已收到相关信号。', sourceUrl: 'https://example.com' }] })), independentReview: { status: 'challenged', hypotheses: ['项目将持续交付产品。'], falsificationChecks: ['检查后续版本与公开进展是否兑现。'], counterEvidence: ['暂无充分反证。'], conclusion: '暂未证伪，但证据强度有限。', evidence: [{ evidenceId, claim: '当前仅有 Alpha 信号证据。', sourceUrl: 'https://example.com' }] }, score: { overall: 60, confidence: 0.55, verdict: '持续观察', dimensions: trackKeys.map((key) => ({ key, score: 6, rationale: '证据有限。' })) }, risksEvidence: [{ risk: '代币经济不明', evidence: [{ evidenceId, claim: '官方尚未公布代币模型', sourceUrl: 'https://example.com' }] }] };
+const report = { coreInfo: { projectName: 'Northstar', handle: '@northstar', summary: '基础设施项目。', stage: '测试网' }, focusReason: { currentProgress: '已发布测试网。', strengths: ['团队持续交付'], weaknesses: ['代币经济尚未公布'], reason: '值得继续观察。' }, tags: ['DePIN'] };
 
 describe('research report document', () => {
   it('builds the fixed six-section template prompt', () => {
-    const prompt = buildResearchReportPrompt({ project: { name: 'Northstar', handle: '@northstar' }, signals: ['Alpha 共同关注 12'], evidence: [evidenceId] });
+    const prompt = buildResearchReportPrompt({ project: { name: 'Northstar', handle: '@northstar' }, signals: ['Alpha 共同关注 12'], evidence: ['00000000-0000-4000-8000-000000000001'] });
     expect(prompt.user).toContain('产品机制与用户参与方式');
     expect(prompt.user).not.toContain('请完成 L2 六赛道深挖');
     expect(prompt.user).toContain('不要进行 L2 六赛道深挖');
@@ -20,16 +18,17 @@ describe('research report document', () => {
     expect(prompt.user).not.toContain('已完成事项、未完成事项');
     expect(prompt.user).not.toContain('项目背景');
     expect(prompt.system).toContain('ReportDocumentSchema');
-    expect(prompt.system).toContain('JSON 键名必须严格使用 Schema 定义的英文键名');
+    expect(prompt.system).toContain('顶层只能包含 coreInfo、focusReason、tags 三个键');
+    expect(prompt.system).not.toContain('thesis');
+    expect(prompt.system).not.toContain('l2Tracks');
     expect(prompt.system).toContain('coreInfo.summary 必须采用');
     expect(prompt.system).toContain('focusReason.reason 必须是交易决策式完整段落');
     expect(prompt.system).toContain(REPORT_STYLE_TEMPLATE);
     expect(prompt.system).toContain('不要进行 L2 六赛道深挖');
     expect(prompt.system).toContain('不要生成独立的项目背景章节');
   });
-  it('validates evidence ids and renders a readable Chinese document', () => {
+  it('accepts only the six-section V2 contract and renders a readable Chinese document', () => {
     const parsed = ReportDocumentSchema.parse(report);
-    expect(() => validateEvidenceReferences(parsed, new Set([evidenceId]))).not.toThrow();
     const markdown = renderReportMarkdown(parsed, new Date('2026-08-26T00:00:00Z'));
     expect(markdown).toContain('# Northstar｜AI 调研报告');
     expect(markdown).toContain('## 二、当前进展');
@@ -44,8 +43,8 @@ describe('research report document', () => {
     expect(markdown).not.toContain('总分：60.0 / 100');
     expect(markdown).not.toContain('"coreInfo"');
   });
-  it('rejects a report that cites an unavailable evidence id', () => {
-    const parsed = ReportDocumentSchema.parse(report);
-    expect(() => validateEvidenceReferences(parsed, new Set())).toThrow('missing evidence');
+
+  it('rejects removed V1 analysis fields instead of retaining hidden output', () => {
+    expect(() => ReportDocumentSchema.parse({ ...report, thesis: ['旧版字段'] })).toThrow();
   });
 });

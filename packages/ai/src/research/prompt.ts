@@ -1,14 +1,5 @@
 import type { ReportDocument } from './report-schema.js';
 
-export const L2_RESEARCH_TRACKS = [
-  { key: 'product', title: '产品与需求', question: '产品解决什么问题，用户是谁，真实使用和差异化是否成立？' },
-  { key: 'technology', title: '技术与交付', question: '技术路线、开发进度、可验证交付和工程风险是什么？' },
-  { key: 'team', title: '团队与执行', question: '团队身份、持续交付能力和执行可信度有哪些可核验事实？' },
-  { key: 'market', title: '市场与生态', question: '市场空间、用户增长、生态合作和竞争格局是否支持项目叙事？' },
-  { key: 'tokenomics', title: '代币与激励', question: '代币模型、积分、空投、解锁和参与激励有哪些已确认与未知项？' },
-  { key: 'catalysts', title: '催化剂与风险', question: '近期催化剂、关键时间点、失败条件和下行风险是什么？' }
-] as const;
-
 export interface ResearchPromptInput {
   project: { name: string; handle: string; stage?: string; summary?: string };
   signals: readonly string[];
@@ -48,7 +39,7 @@ export function buildResearchReportPrompt(input: ResearchPromptInput): { system:
     `\n可用 Evidence：\n${input.evidence.length ? input.evidence.map((item) => `- ${item}`).join('\n') : '- 暂无'}`,
     `\n联网搜索结果（仅作为公开资料线索，必须结合 Evidence 谨慎判断）：\n${input.webSearch?.length ? input.webSearch.map((item) => `- ${item}`).join('\n') : '- 未找到公开搜索结果，请明确标注“暂无公开资料”'}`
   ].join('\n');
-  return { system: `你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook）；coreInfo.summary 必须采用“项目名 (@账号) 定位为……”的项目定位模板，具体展开定位、机制、用户玩法、生态、收入机制、当前进展和验证点，不能只写泛化摘要；不要生成独立的项目背景章节或背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据；focusReason.reason 必须是交易决策式完整段落，首句明确给出“值得小仓试错/持续观察/暂不纳入”，并说明早期窗口、证据缺口、跟踪动作和不重仓边界。以下是必须遵循的固定写作模板（花括号必须替换为真实证据）：\n${REPORT_STYLE_TEMPLATE}\n只输出模板要求的六节正文，不要进行 L2 六赛道深挖、独立复核轮、评分总览或风险与证据链等额外分析环节。中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入章节编号，禁止把多个章节合并到同一个字段。`, user };
+  return { system: `你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。顶层只能包含 coreInfo、focusReason、tags 三个键：coreInfo 只能包含 projectName、handle、summary、stage；focusReason 只能包含 currentProgress、strengths、weaknesses、reason；tags 是字符串数组。禁止输出任何其他键。coreInfo.summary 必须采用“项目名 (@账号) 定位为……”的项目定位模板，具体展开定位、机制、用户玩法、生态、收入机制、当前进展和验证点，不能只写泛化摘要；不要生成独立的项目背景章节或背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据；focusReason.reason 必须是交易决策式完整段落，首句明确给出“值得小仓试错/持续观察/暂不纳入”，并说明早期窗口、证据缺口、跟踪动作和不重仓边界。以下是必须遵循的固定写作模板（花括号必须替换为真实证据）：\n${REPORT_STYLE_TEMPLATE}\n只输出模板要求的六节正文，不要进行 L2 六赛道深挖、独立复核轮、评分总览、风险与证据链、核心论点或参与玩法等额外分析环节。中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入章节编号，禁止把多个章节合并到同一个字段。`, user };
 }
 
 export type ResearchReportDocument = ReportDocument;

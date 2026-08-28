@@ -4,8 +4,7 @@ import {
   buildResearchReportPrompt,
   renderReportMarkdown,
   ReportDocumentSchema,
-  type ReportDocument,
-  validateEvidenceReferences
+  type ReportDocument
 } from '@alpha-research/ai';
 import { OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
 
@@ -22,11 +21,6 @@ function parsePayload(job: JobRecord): ResearchProjectPayload {
   if (!payload?.projectId) throw new Error('Invalid research_project payload');
   return payload;
 }
-
-const TRACK_KEYS = ['product', 'technology', 'team', 'market', 'tokenomics', 'catalysts'] as const;
-const TRACK_TITLES: Record<(typeof TRACK_KEYS)[number], string> = {
-  product: '产品与需求', technology: '技术与交付', team: '团队与执行', market: '市场与生态', tokenomics: '代币与激励', catalysts: '催化剂与风险'
-};
 
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function text(value: unknown, fallback = ''): string { return typeof value === 'string' && value.trim() ? value.trim() : fallback; }
@@ -48,9 +42,6 @@ function strings(value: unknown): string[] {
 }
 function stripSectionPrefix(value: string): string {
   return value.replace(/^\s*(?:第\s*)?[1-7８-９七六五四三二一]+\s*[\.、．]\s*(?:项目核心信息|项目背景(?:\/背书账号)?|当前进展|优点|缺点|关注理由|标签)\s*[:：]?\s*/u, '').trim();
-}
-function stripTrackPrefix(value: string): string {
-  return value.replace(/^\s*(?:第\s*)?[1-6一二三四五六]+\s*[\.、．]\s*(?:产品与需求|技术与交付|团队与执行|市场与生态|代币与激励|催化剂与风险)(?:\s*[（(][^）)]*[）)])?\s*[:：]?\s*/u, '').trim();
 }
 function sectionValue(value: unknown, expected: string, fallback = ''): string {
   const raw = text(value);
@@ -77,80 +68,19 @@ function sanitizeCurrentProgress(value: string): string {
     .trim();
   return cleaned || '最近帖子分析：当前未获取到可公开读取的近期帖子正文，可能是锁定、删除或搜索结果受限；待下一条公开帖子验证。';
 }
-function recordTextValues(value: unknown): string[] {
-  const object = record(value);
-  return Object.entries(object)
-    .filter(([key]) => !['key', 'title', 'name', 'score', 'rating', '评分', 'evidence', '证据', 'evidenceIds', 'evidence_ids'].includes(key))
-    .flatMap(([key, item]) => {
-      if (typeof item === 'string' && item.trim()) return [`${key}: ${item.trim()}`];
-      if (Array.isArray(item)) return item.flatMap((entry) => typeof entry === 'string' && entry.trim() ? [`${key}: ${entry.trim()}`] : []);
-      return [];
-    });
-}
-function trackKey(value: unknown): (typeof TRACK_KEYS)[number] | null {
-  const normalized = text(value).toLowerCase();
-  if (TRACK_KEYS.includes(normalized as (typeof TRACK_KEYS)[number])) return normalized as (typeof TRACK_KEYS)[number];
-  const map: Record<string, (typeof TRACK_KEYS)[number]> = { '产品与需求': 'product', '技术与交付': 'technology', '团队与执行': 'team', '市场与生态': 'market', '代币与激励': 'tokenomics', '催化剂与风险': 'catalysts', 'product': 'product', 'technology': 'technology', 'team': 'team', 'market': 'market', 'tokenomics': 'tokenomics', 'catalysts': 'catalysts' };
-  return map[normalized] ?? null;
-}
-
-function normalizedEvidence(value: unknown, evidenceIds: readonly string[]) {
-  const item = record(value);
-  const candidate = text(item.evidenceId ?? item.evidence_id ?? item.id ?? (typeof value === 'string' ? value : ''));
-  const evidenceId = evidenceIds.includes(candidate) ? candidate : evidenceIds[0];
-  if (!evidenceId) return [];
-  return [{ evidenceId, claim: text(item.claim ?? item.summary ?? (typeof value === 'string' && !value.match(/^[0-9a-f-]{36}$/i) ? value : ''), 'Alpha 已收到相关信号。'), ...(text(item.sourceUrl ?? item.source_url) ? { sourceUrl: text(item.sourceUrl ?? item.source_url) } : {}) }];
-}
-
-function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly string[], fallbackProject?: ProjectRow) {
+function normalizeReport(raw: Record<string, unknown>, fallbackProject?: ProjectRow) {
   const projectValue = first(raw, ['project', 'coreInfo', 'project_info', '项目核心信息', '核心信息']);
   const project = typeof projectValue === 'string' ? {} : record(projectValue);
   const focus = record(first(raw, ['focusReason', 'key_focus', 'focus_reason', 'focus', '关注理由', '重点关注理由']));
-  const review = record(first(raw, ['independentReview', 'independent_review', 'review', '独立复核轮', '独立复核', '证伪检查']));
-  const scoreValue = first(raw, ['score', 'scores', '评分总览', '评分']);
-  const scores = typeof scoreValue === 'number' ? { overall: scoreValue } : record(scoreValue);
-  const scoreDimensions = record(first(scores, ['dimensions', 'dimension_scores', '维度', '分项评分']));
-  const trackValue = first(raw, ['l2Tracks', 'six_tracks', 'lanes', '六赛道', 'L2六赛道', 'L2 六赛道深挖', '赛道']);
-  const rawTracks = Array.isArray(trackValue)
-    ? trackValue
-    : Object.entries(record(trackValue)).map(([key, value]) => ({ key, ...(typeof value === 'string' ? { summary: value, findings: [value] } : record(value)) }));
-  const globalEvidence = strings(first(raw, ['evidence_ids', 'evidenceIds', 'evidence', '证据ID', '证据编号'])).flatMap((item) => normalizedEvidence(item, evidenceIds));
-  const tracks = TRACK_KEYS.map((key) => {
-    const rawSource = rawTracks.find((item) => trackKey(first(item, ['key', 'track', 'title', 'name', '赛道', '名称'])) === key)
-      ?? rawTracks[TRACK_KEYS.indexOf(key)];
-    const source = typeof rawSource === 'string' ? { summary: rawSource, findings: [rawSource] } : record(rawSource);
-    const evidenceValue = first(source, ['evidence', '证据', 'evidence_chain', '证据链']);
-    const evidence = Array.isArray(evidenceValue) ? evidenceValue.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
-    const explicitFindings = strings(first(source, ['findings', 'key_findings', 'points', 'analysis', 'description', '发现', '要点', '关键发现', '描述']));
-    const findings = (explicitFindings.length ? explicitFindings : recordTextValues(source)).map(stripTrackPrefix).filter(Boolean);
-    const summary = stripTrackPrefix(text(first(source, ['summary', 'assessment', 'conclusion', 'description', '总结', '判断', '结论', '分析', '描述'])) || findings[0] || '暂无可核验结论。');
-    return { key, title: TRACK_TITLES[key], score: Math.max(0, Math.min(10, Number(first(source, ['score', 'rating', '评分'])) || Number(scoreDimensions[key]) || Number(scores[key]) || 0)), summary, findings: findings.slice(0, 8).concat(findings.length ? [] : ['暂无可核验结论。']), evidence };
-  });
-  const reviewEvidenceValue = first(review, ['evidence', '证据', '证据链']);
-  const reviewEvidence = Array.isArray(reviewEvidenceValue) ? reviewEvidenceValue.flatMap((item) => normalizedEvidence(item, evidenceIds)) : globalEvidence;
-  const riskValue = first(raw, ['risksEvidence', 'not_include', '风险与证据链', '风险证据']);
-  const riskItems = Array.isArray(riskValue) ? riskValue : [];
-  const monitorValue = first(raw, ['monitor', '监控']);
-  const playbookValue = first(raw, ['playbook', '参与玩法', '玩法', '参与方式']) ?? first(record(monitorValue), ['steps', 'actions', '步骤', '行动']);
   const focusNarrative = typeof first(raw, ['focusReason', 'focus']) === 'string' ? stripSectionPrefix(text(first(raw, ['focusReason', 'focus']))) : '';
-  const thesisValues = strings(first(raw, ['thesis', 'key_focus', '观点', '核心观点', '核心论点', '论点'])).filter((item) => !PLACEHOLDER_TEXT.has(item) && !isTemplateEcho(item));
-  const productSummary = tracks.find((track) => track.key === 'product')?.summary;
   const summaryCandidate = first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']);
-  const summaryValue = sectionValue(summaryCandidate, '项目核心信息', thesisValues[0] ?? productSummary ?? '公开定位资料不足，暂无法确认具体产品机制和参与方式。');
+  const summaryValue = sectionValue(summaryCandidate, '项目核心信息', '公开定位资料不足，暂无法确认具体产品机制和参与方式。');
   const summary = isTemplateEcho(summaryValue) ? '公开定位资料不足，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。' : summaryValue;
   const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sectionValue(item, '优点')).filter((item) => item && !isTemplateEcho(item) && !/暂无(?:明确)?优势|暂无正向证据/u.test(item));
   const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sectionValue(item, '缺点')).filter((item) => item && !isTemplateEcho(item) && !/暂无(?:明确)?缺点|暂无负向证据/u.test(item));
-  const trackStrengths = tracks.filter((track) => track.score >= 5 && !PLACEHOLDER_TEXT.has(track.summary)).map((track) => `${track.title}：${track.summary}`).slice(0, 3);
-  const trackWeaknesses = tracks.filter((track) => track.score < 5 && !PLACEHOLDER_TEXT.has(track.summary)).map((track) => `${track.title}：${track.summary}`).slice(0, 3);
-  const strengths = rawStrengths.length ? rawStrengths : thesisValues.slice(0, 2).concat(trackStrengths).concat(typeof productSummary === 'string' && !PLACEHOLDER_TEXT.has(productSummary) ? [`产品定位线索：${productSummary}；若后续交付与用户反馈得到验证，可构成早期差异化。`] : []);
-  const weaknesses = rawWeaknesses.length ? rawWeaknesses : trackWeaknesses.concat([
-    '证据完整性风险：当前公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。',
-    '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'
-  ]).slice(0, 3);
-  const progressFallback = [tracks.find((track) => track.key === 'technology')?.summary, tracks.find((track) => track.key === 'catalysts')?.summary].filter((value): value is string => typeof value === 'string' && value.length > 0 && !PLACEHOLDER_TEXT.has(value)).join('；');
-  const normalizedStrengths = strengths.length ? strengths : ['定位线索：账号围绕一个明确主题或产品方向展开，若后续出现可验证交付与用户反馈，可能形成早期差异化。'];
-  const normalizedWeaknesses = weaknesses.length ? weaknesses : ['证据完整性风险：当前公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
-  const progressValue = sectionValue(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']), '当前进展', progressFallback || focusNarrative || text(first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
+  const normalizedStrengths = rawStrengths.length ? rawStrengths : ['定位线索：账号围绕一个明确主题或产品方向展开，若后续出现可验证交付与用户反馈，可能形成早期差异化。'];
+  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : ['证据完整性风险：当前公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
+  const progressValue = sectionValue(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']), '当前进展', focusNarrative || text(first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
   const currentProgress = sanitizeCurrentProgress(isTemplateEcho(progressValue) ? '近期帖子不可公开读取，暂无法从公开正文确认账号活跃度与项目进展；待下一条公开帖子验证。' : progressValue);
   const reasonValue = sectionValue(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, '关注理由', currentProgress);
   const normalizedReason = isTemplateEcho(reasonValue) ? '持续观察。当前公开资料和有效信号不足，暂不具备高确定性判断；建议继续跟踪近期帖子、产品交付和用户增长，在出现可验证进展前不扩大仓位。' : reasonValue;
@@ -159,17 +89,11 @@ function normalizeReport(raw: Record<string, unknown>, evidenceIds: readonly str
   return {
     coreInfo: { projectName: text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', 'xHandle', 'xAccount', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'xHandle', 'xAccount', 'account', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary, stage },
     focusReason: { currentProgress, strengths: normalizedStrengths, weaknesses: normalizedWeaknesses, reason: normalizedReason },
-    tags: normalizedTags.length ? normalizedTags : ['早期项目', '待持续验证'],
-    thesis: thesisValues.length ? thesisValues.map(stripSectionPrefix) : [focusNarrative ? `核心判断：${focusNarrative}` : '核心判断：项目是否能完成公开交付，是后续价值验证的关键。'],
-    playbook: strings(playbookValue).filter((item) => !PLACEHOLDER_TEXT.has(item)).length ? strings(playbookValue).filter((item) => !PLACEHOLDER_TEXT.has(item)).map(stripSectionPrefix) : [`观察动作：持续跟踪${tracks.find((track) => track.key === 'catalysts')?.summary ?? '官方更新、产品交付和用户增长信号'}，在出现可验证进展后再评估小额试错。`],
-    l2Tracks: tracks,
-    independentReview: { status: ['passed', 'challenged', 'failed'].includes(text(first(review, ['status', '状态']))) ? text(first(review, ['status', '状态'])) : 'challenged', hypotheses: strings(first(review, ['hypotheses', 'hypotheses_to_test', 'falsifiableHypotheses', '假设', '待证伪假设'])).concat(strings(first(review, ['hypotheses', 'hypotheses_to_test', 'falsifiableHypotheses', '假设', '待证伪假设'])).length ? [] : ['项目将继续推进并产生可验证进展。']), falsificationChecks: strings(first(review, ['falsificationChecks', 'falsification_checks', 'checks', 'checkItems', '证伪检查项', '检查项'])).concat(strings(first(review, ['falsificationChecks', 'falsification_checks', 'checks', 'checkItems', '证伪检查项', '检查项'])).length ? [] : ['检查后续版本、官方公告和实际使用情况。']), counterEvidence: strings(first(review, ['counterEvidence', 'counter_evidence', '反证', '反面证据'])), conclusion: text(first(review, ['conclusion', 'finalConclusion', '结论']), '独立复核完成：暂无充分证据支持或证伪核心论点。'), evidence: reviewEvidence },
-    score: { overall: Math.max(0, Math.min(100, Number(first(scores, ['overall', 'total', '总分'])) || 0)), confidence: Math.max(0, Math.min(1, Number(first(scores, ['confidence', '置信度'])) || 0.3)), verdict: ['重点关注', '持续观察', '暂不纳入'].includes(text(first(scores, ['verdict', '判断']))) ? text(first(scores, ['verdict', '判断'])) : text(first(scores, ['judgment', '判断'])) === '暂不纳入判断' ? '暂不纳入' : '持续观察', dimensions: TRACK_KEYS.map((key) => ({ key, score: tracks.find((track) => track.key === key)?.score ?? 0, rationale: tracks.find((track) => track.key === key)?.summary ?? '暂未确认。' })) },
-    risksEvidence: riskItems.length ? riskItems.map((item) => { const value = record(item); return { risk: text(value.risk ?? value.reason ?? value, '待核实风险'), evidence: Array.isArray(value.evidence) ? value.evidence.flatMap((entry) => normalizedEvidence(entry, evidenceIds)) : [] }; }) : (typeof first(raw, ['risksEvidence', '风险与证据链', '风险证据']) === 'string' ? [{ risk: text(first(raw, ['risksEvidence', '风险与证据链', '风险证据'])), evidence: globalEvidence }] : [])
+    tags: normalizedTags.length ? normalizedTags : ['早期项目', '待持续验证']
   };
 }
 
-function parseReport(textValue: string, evidenceIds: readonly string[], fallbackProject?: ProjectRow) {
+function parseReport(textValue: string, fallbackProject?: ProjectRow) {
   const cleaned = textValue.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
   const candidates: string[] = [];
   if (cleaned) candidates.push(cleaned);
@@ -211,7 +135,15 @@ function parseReport(textValue: string, evidenceIds: readonly string[], fallback
         if (!wrapper) { nested = current; break; }
         nested = current[wrapper];
       }
-      return ReportDocumentSchema.parse(normalizeReport(record(nested), evidenceIds, fallbackProject));
+      const source = record(nested);
+      const requiredSections: Array<[string, readonly string[]]> = [
+        ['coreInfo', ['coreInfo', 'project', 'project_info', '项目核心信息', '核心信息']],
+        ['focusReason', ['focusReason', 'key_focus', 'focus_reason', 'focus', '关注理由', '重点关注理由']],
+        ['tags', ['tags', '标签']]
+      ];
+      const missingSections = requiredSections.filter(([, keys]) => first(source, keys) === undefined).map(([name]) => name);
+      if (missingSections.length) throw new Error(`research output missing V2 sections: ${missingSections.join(', ')}`);
+      return ReportDocumentSchema.parse(normalizeReport(source, fallbackProject));
     } catch (error) {
       lastError = error;
     }
@@ -247,12 +179,6 @@ function assertReportComplete(report: ReportDocument): void {
   if (!meaningful(report.focusReason.reason)) failures.push('focusReason.reason');
   if (!report.focusReason.strengths.some(meaningful)) failures.push('focusReason.strengths');
   if (!report.focusReason.weaknesses.some(meaningful)) failures.push('focusReason.weaknesses');
-  if (!report.thesis.some(meaningful)) failures.push('thesis');
-  if (!report.playbook.some(meaningful)) failures.push('playbook');
-  // L2 tracks, independent review and scores are retained internally for
-  // auditability, but the reader-facing report intentionally exposes only
-  // sections 1-6. Missing hidden fields must not make an otherwise readable
-  // Chinese report fail and disappear from the desk.
   if (failures.length) throw new Error(`research output incomplete: ${failures.join(', ')}`);
 }
 
@@ -383,7 +309,7 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
       let completion = await router.complete({ purpose: 'research', system: prompt.system, user: prompt.user, schema: 'ReportDocumentSchema' });
       let report: ReportDocument;
       try {
-        report = parseReport(completion.response.text, evidence.map((item) => item.id), project);
+        report = parseReport(completion.response.text, project);
         assertReportComplete(report);
       } catch (firstError) {
         // A few relays return a valid JSON skeleton after tool use. Ask once
@@ -391,29 +317,20 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
         completion = await router.complete({
           purpose: 'research',
           system: `${prompt.system}\n不得输出占位值。每个字段必须给出基于搜索或信号的具体判断；若没有证据，写明“暂无公开证据”并解释原因。`,
-          user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请优先补齐 1-6 节可读中文正文，每节都要有具体事实、判断和不确定性；内部六赛道、评分和复核字段可基于已有证据归一化。`,
+          user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请重新补齐 1-6 节可读中文正文，每节都要有具体事实、判断和不确定性。顶层仍只能输出 coreInfo、focusReason、tags，禁止输出核心论点、参与玩法、六赛道、独立复核、评分或风险证据链字段。`,
           schema: 'ReportDocumentSchema'
         });
-        report = parseReport(completion.response.text, evidence.map((item) => item.id), project);
+        report = parseReport(completion.response.text, project);
         assertReportComplete(report);
       }
       const citationEvidence = await ensureCitationEvidence(database, project, completion.response.citations ?? []);
-      const allEvidence = [...evidence, ...citationEvidence];
-      // Citation evidence is appended after parsing; validate again against
-      // the final evidence set before persisting the readable document.
-      const citedReport = citationEvidence.length ? {
-        ...report,
-        l2Tracks: report.l2Tracks.map((track, index) => index === 0 ? { ...track, evidence: [...track.evidence, ...citationEvidence.map((item) => ({ evidenceId: item.id, claim: 'Grok X Search 公开资料引用。', sourceUrl: item.url }))] } : track),
-        independentReview: { ...report.independentReview, evidence: [...report.independentReview.evidence, ...citationEvidence.map((item) => ({ evidenceId: item.id, claim: 'Grok X Search 公开资料引用。', sourceUrl: item.url }))] }
-      } : report;
-      validateEvidenceReferences(citedReport, new Set(allEvidence.map((item) => item.id)));
-      const markdown = renderReportMarkdown(citedReport);
+      const markdown = renderReportMarkdown(report);
       await database.query(
         `update report_versions
          set status = 'ready', structured_document = $2::jsonb, rendered_markdown = $3,
              change_summary = $4::jsonb, completed_at = now()
          where id = $1`,
-        [version.id, JSON.stringify(citedReport), markdown, JSON.stringify({ provider: completion.provider.name, model: completion.response.model, xSearchCitations: citationEvidence.length })]
+        [version.id, JSON.stringify(report), markdown, JSON.stringify({ provider: completion.provider.name, model: completion.response.model, xSearchCitations: citationEvidence.length })]
       );
       await new OutboxStore(database).append({
         type: 'report.ready', aggregateType: 'project', aggregateId: projectId, version: version.version,
