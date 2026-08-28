@@ -9,8 +9,8 @@ describe('research report document', () => {
   it('builds the fixed six-section template prompt', () => {
     const prompt = buildResearchReportPrompt({ project: { name: 'Northstar', handle: '@northstar' }, signals: ['Alpha 共同关注 12'], evidence: [evidenceId] });
     expect(prompt.user).toContain('产品机制与用户参与方式');
-    expect(prompt.user).not.toContain('独立复核轮');
-    expect(prompt.user).not.toContain('L2 六赛道深挖');
+    expect(prompt.user).not.toContain('请完成 L2 六赛道深挖');
+    expect(prompt.user).toContain('不要进行 L2 六赛道深挖');
     expect(prompt.user).toContain('项目名 (@账号) 定位为');
     expect(prompt.user).toContain('商业模式或收入分配');
     expect(prompt.user).toContain('完整连贯的中文分析');
