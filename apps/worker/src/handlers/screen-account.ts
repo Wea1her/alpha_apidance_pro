@@ -12,9 +12,9 @@ export function createScreenAccountHandler(database: JobDatabase, screening: Acc
     if (!payload?.projectId || !payload.input?.xUserId) throw new Error('Invalid screen_account payload');
     const result = await screening.classify(payload.input);
     const decisionResult = await database.query<{ id: string }>(
-      `insert into screening_decisions (project_id, decision, account_type, reason)
-       values ($1, $2, $3, $4) returning id`,
-      [payload.projectId, result.decision === 'pending_review' ? 'failed' : result.decision, result.accountType, result.reason]
+      `insert into screening_decisions (project_id, decision, account_type, reason, chain_category, playbook_category)
+       values ($1, $2, $3, $4, $5, $6) returning id`,
+      [payload.projectId, result.decision === 'pending_review' ? 'failed' : result.decision, result.accountType, result.reason, result.chainCategory ?? null, result.playbookCategory ?? null]
     );
     const decisionId = decisionResult.rows[0]?.id;
     if (decisionId) await new OutboxStore(database).append({

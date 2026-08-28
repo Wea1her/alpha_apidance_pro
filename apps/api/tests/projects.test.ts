@@ -125,4 +125,26 @@ describe('project tweet history route', () => {
     const response = await app.inject({ method: 'GET', url: '/api/projects?filter=all&limit=all' });
     expect(response.json<{ items: Array<{ handle: string; playbookCategory: string }> }>().items.find((item) => item.handle === 'rocket.fun')?.playbookCategory).toBe('Launchpad');
   });
+
+  it('prefers AI screening categories over conflicting report and signal classifications', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name, status) values ('category-screen', 'screen_first', 'Screen First', 'active') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason, chain_category, playbook_category) values ($1, 'allowed', 'PROJECT', '项目账号', 'Base', 'Launchpad')`, [project.rows[0].id]);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'category-screen-raw', '{}'::jsonb, 'decoded') returning id`);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'category-screen', 'profile_change', now(), 'Solana DeFi trading protocol', '{}'::jsonb)`, [raw.rows[0].id, project.rows[0].id]);
+    await database.query(`insert into report_versions (project_id, version, status, structured_document, rendered_markdown, completed_at) values ($1, 2, 'ready', $2::jsonb, '', now())`, [project.rows[0].id, JSON.stringify({ coreInfo: { summary: 'Ethereum NFT collection' }, tags: ['NFT'] })]);
+    const app = Fastify(); apps.push(app); registerProjectRoutes(app, { database }); await app.ready();
+    const response = await app.inject({ method: 'GET', url: '/api/projects?filter=all&limit=all' });
+    expect(response.json<{ items: Array<{ handle: string; chainCategory: string; playbookCategory: string }> }>().items.find((item) => item.handle === 'screen_first')).toMatchObject({ chainCategory: 'Base', playbookCategory: 'Launchpad' });
+  });
+
+  it('falls back to the latest AI report when screening has no categories', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name, status) values ('category-report', 'report_fallback', 'Report Fallback', 'active') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    await database.query(`insert into report_versions (project_id, version, status, structured_document, rendered_markdown, completed_at) values ($1, 2, 'ready', $2::jsonb, '', now())`, [project.rows[0].id, JSON.stringify({ coreInfo: { summary: 'Zcash / ZEC ecosystem NFT collection with an upcoming mint' }, tags: ['Zcash', 'NFT', 'Mint'] })]);
+    const app = Fastify(); apps.push(app); registerProjectRoutes(app, { database }); await app.ready();
+    const response = await app.inject({ method: 'GET', url: '/api/projects?filter=all&limit=all' });
+    expect(response.json<{ items: Array<{ handle: string; chainCategory: string; playbookCategory: string }> }>().items.find((item) => item.handle === 'report_fallback')).toMatchObject({ chainCategory: 'Zcash', playbookCategory: 'NFT / 游戏' });
+  });
 });

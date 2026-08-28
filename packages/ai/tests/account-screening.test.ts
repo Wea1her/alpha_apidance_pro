@@ -144,4 +144,12 @@ describe('AccountScreeningService', () => {
     expect(result.reason).toContain('粉丝/认证证据：粉丝数 128，已认证');
     expect(result.reason).toContain('项目类型结论：项目账号');
   });
+  it('returns AI chain and playbook classifications with the screening decision', async () => {
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '项目账号。', chainCategory: 'Base', playbookCategory: 'Launchpad' }))]));
+    await expect(service.classify({ ...input, handle: 'base_launch' })).resolves.toMatchObject({ decision: 'allowed', chainCategory: 'Base', playbookCategory: 'Launchpad' });
+  });
+  it('forces every .fun account into Launchpad when the model misclassifies it', async () => {
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '发射项目。', chainCategory: 'Monad', playbookCategory: 'DeFi / 交易' }))]));
+    await expect(service.classify({ ...input, handle: 'rocket.fun' })).resolves.toMatchObject({ decision: 'allowed', chainCategory: 'Monad', playbookCategory: 'Launchpad' });
+  });
 });

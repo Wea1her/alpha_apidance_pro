@@ -7,7 +7,8 @@ interface ProjectRow {
   id: string; x_user_id: string; current_handle: string; display_name: string; avatar_url: string | null;
   status: string; highest_star: number; highest_common_follow_count: number; current_common_follow_count: number; surge_until: string | null;
   exclusion_reason: string | null; screening_account_type?: string | null; screening_reason?: string | null;
-  latest_signal_context?: string | null;
+  screening_chain_category?: string | null; screening_playbook_category?: string | null;
+  latest_signal_context?: string | null; latest_report_document?: unknown; latest_report_markdown?: string | null;
   has_ca: boolean; latest_signal_at: string | null; report_status: string | null; screening_decision?: string | null; monitor_actual_state?: string | null; monitor_desired_state?: string | null;
 }
 
@@ -16,6 +17,9 @@ function classifyChain(context: string): string {
   const chains: Array<[string, string[]]> = [
     ['Robinhood Chain', ['robinhood chain', 'robinhoodcrypto']],
     ['Solana', ['solana', 'solana vm']],
+    ['Zcash', ['zcash', ' zec', '$zec', 'zec ecosystem']],
+    ['ARC', ['arc chain', 'arc network', 'on arc', 'arc mainnet']],
+    ['Litecoin', ['litecoin', 'ltc', 'litecoinvm', 'litecoin vm']],
     ['Base', ['base chain', 'base network', 'base.org']],
     ['Arbitrum', ['arbitrum', 'arb one']],
     ['Optimism', ['optimism', 'op mainnet']],
@@ -32,9 +36,49 @@ function classifyChain(context: string): string {
     ['Linea', ['linea network', 'linea build']],
     ['Monad', ['monad']],
     ['Hyperliquid', ['hyperliquid']],
-    ['EVM 多链', ['evm', 'ethereum', ' eth ', 'erc-20', 'erc20']]
+    ['Ethereum', ['ethereum', ' eth ', 'erc-20', 'erc20']],
+    ['多链', ['multi-chain', 'multichain', '多链']]
   ];
   return chains.find(([, needles]) => needles.some((needle) => value.includes(needle)))?.[0] ?? '待研判';
+}
+
+function usableCategory(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!normalized || /^(?:待研判|待分类|未知|unknown|未确认|暂无|未提供)$/iu.test(normalized)) return null;
+  return normalized;
+}
+
+function reportText(document: unknown, markdown?: string | null): string {
+  const parts: string[] = [];
+  if (typeof document === 'string') {
+    try { document = JSON.parse(document) as unknown; } catch { /* fall through to markdown */ }
+  }
+  if (document && typeof document === 'object') {
+    const value = document as Record<string, unknown>;
+    const core = value.coreInfo;
+    if (core && typeof core === 'object') parts.push(String((core as Record<string, unknown>).summary ?? ''), String((core as Record<string, unknown>).projectName ?? ''));
+    const focus = value.focusReason;
+    if (focus && typeof focus === 'object') parts.push(String((focus as Record<string, unknown>).currentProgress ?? ''), String((focus as Record<string, unknown>).reason ?? ''));
+    const tags = value.tags;
+    if (Array.isArray(tags)) parts.push(tags.map(String).join(' '));
+  }
+  if (markdown) parts.push(markdown);
+  return parts.filter((part) => part && part !== 'undefined').join(' ');
+}
+
+function resolveChainCategory(row: ProjectRow): string {
+  const screening = usableCategory(row.screening_chain_category);
+  if (screening) return screening;
+  return classifyChain(`${row.display_name} ${row.current_handle} ${reportText(row.latest_report_document, row.latest_report_markdown)} ${row.latest_signal_context ?? ''}`);
+}
+
+function resolvePlaybookCategory(row: ProjectRow): string {
+  // .fun is a hard convention and must win over every AI/report fallback.
+  if (/^@?[a-z0-9_]+\.fun$/iu.test(row.current_handle.trim())) return 'Launchpad';
+  const screening = usableCategory(row.screening_playbook_category);
+  if (screening) return screening;
+  return classifyPlaybook(`${row.display_name} ${row.current_handle} ${reportText(row.latest_report_document, row.latest_report_markdown)} ${row.latest_signal_context ?? ''}`);
 }
 
 function classifyPlaybook(context: string): string {
@@ -79,8 +123,8 @@ function toProject(row: ProjectRow) {
     screeningAccountType: row.screening_account_type ?? null,
     screeningReason: row.screening_reason ?? null,
     exclusionReason: row.exclusion_reason ?? null,
-    chainCategory: classifyChain(`${row.display_name} ${row.current_handle} ${row.latest_signal_context ?? ''}`),
-    playbookCategory: classifyPlaybook(`${row.display_name} ${row.current_handle} ${row.latest_signal_context ?? ''}`),
+    chainCategory: resolveChainCategory(row),
+    playbookCategory: resolvePlaybookCategory(row),
     monitorStatus: row.monitor_actual_state ?? null,
     monitorDesiredState: row.monitor_desired_state ?? null
   };
@@ -121,6 +165,10 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
               (select sd.decision from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_decision,
               (select sd.account_type from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_account_type,
               (select sd.reason from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_reason,
+              (select sd.chain_category from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_chain_category,
+              (select sd.playbook_category from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_playbook_category,
+              (select rv.structured_document from report_versions rv where rv.project_id = p.id and rv.status = 'ready' order by rv.version desc limit 1) as latest_report_document,
+              (select rv.rendered_markdown from report_versions rv where rv.project_id = p.id and rv.status = 'ready' order by rv.version desc limit 1) as latest_report_markdown,
               (select am.actual_state from alpha_monitors am where am.project_id = p.id) as monitor_actual_state,
               (select am.desired_state from alpha_monitors am where am.project_id = p.id) as monitor_desired_state
        from projects p ${where}
@@ -175,6 +223,10 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
               (select sd.decision from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_decision,
               (select sd.account_type from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_account_type,
               (select sd.reason from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_reason,
+              (select sd.chain_category from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_chain_category,
+              (select sd.playbook_category from screening_decisions sd where sd.project_id = p.id order by sd.created_at desc limit 1) as screening_playbook_category,
+              (select rv.structured_document from report_versions rv where rv.project_id = p.id and rv.status = 'ready' order by rv.version desc limit 1) as latest_report_document,
+              (select rv.rendered_markdown from report_versions rv where rv.project_id = p.id and rv.status = 'ready' order by rv.version desc limit 1) as latest_report_markdown,
               (select am.actual_state from alpha_monitors am where am.project_id = p.id) as monitor_actual_state,
               (select am.desired_state from alpha_monitors am where am.project_id = p.id) as monitor_desired_state
        from projects p where p.id = $1`,

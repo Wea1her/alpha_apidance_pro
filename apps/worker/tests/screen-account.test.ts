@@ -16,11 +16,12 @@ describe('screen-account handler', () => {
   it('persists an allowed decision and schedules research', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle) values ('42', 'alpha') returning id`);
-    const handler = createScreenAccountHandler(database, new AccountScreeningService(new AiProviderRouter([adapter('{"accountType":"PROJECT","reason":"项目账号"}')] )));
+    const handler = createScreenAccountHandler(database, new AccountScreeningService(new AiProviderRouter([adapter('{"accountType":"PROJECT","reason":"项目账号","chainCategory":"Base","playbookCategory":"Launchpad"}')] )));
     await handler({ id: 'job', type: 'screen_account', priority: 1, status: 'running', idempotencyKey: 'screen:1', payload: { projectId: project.rows[0].id, input: { xUserId: '42', handle: 'alpha' } } });
-    const decisions = await database.query<{ decision: string }>('select decision from screening_decisions');
+    const decisions = await database.query<{ decision: string; chain_category: string | null; playbook_category: string | null }>('select decision, chain_category, playbook_category from screening_decisions');
     const jobs = await database.query<{ type: string }>(`select type from jobs where type = 'research_project'`);
     expect(decisions.rows[0]?.decision).toBe('allowed');
+    expect(decisions.rows[0]).toMatchObject({ chain_category: 'Base', playbook_category: 'Launchpad' });
     expect(jobs.rows[0]?.type).toBe('research_project');
   });
 

@@ -12,7 +12,16 @@ export interface ScreeningInput {
   profileUrl?: string;
 }
 export type ScreeningDecision = 'allowed' | 'blocked' | 'failed' | 'pending_review';
-export interface ScreeningResult { decision: ScreeningDecision; accountType: AccountType | 'UNKNOWN'; reason: string; providerName?: string; model?: string; attempts: number; }
+export interface ScreeningResult {
+  decision: ScreeningDecision;
+  accountType: AccountType | 'UNKNOWN';
+  reason: string;
+  chainCategory?: string;
+  playbookCategory?: string;
+  providerName?: string;
+  model?: string;
+  attempts: number;
+}
 
 const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI', 'CORPORATE', 'CAPITAL', 'CHAIN', 'EXCHANGE', 'FOUNDATION', 'AFFILIATE']);
 const PROJECT_CONTRADICTION_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI']);
@@ -83,6 +92,16 @@ function normalizeAccountType(value: unknown): AccountType {
   if (['FOUNDATION', '基金会', '基金会官方'].includes(normalized)) return 'FOUNDATION';
   if (['AFFILIATE', '附属账号', '官方附属账号', '生态官方', '开发者关系', 'DEVREL'].includes(normalized)) return 'AFFILIATE';
   return 'UNKNOWN';
+}
+
+function normalizeCategory(value: unknown): string | undefined {
+  const category = String(value ?? '').trim();
+  if (!category || /^(?:待研判|待分类|未知|unknown|未确认|暂无)$/iu.test(category)) return undefined;
+  return category.slice(0, 80);
+}
+
+function isFunHandle(handle: string): boolean {
+  return /^@?[a-z0-9_]+\.fun$/iu.test(handle.trim());
 }
 
 function inferAccountTypeFromReason(reason: string): AccountType {
@@ -244,7 +263,10 @@ function parseModelOutput(text: string): ScreeningOutput {
   if (accountType === 'NFT' && /(?:NFT\s*收藏者|NFT\s*collector|PFP\s*holder|个人收藏|持有者)/iu.test(reason)
     && !/(?:NFT\s*项目|PFP\s*项目|官方账号|项目主体|collection\s*project)/iu.test(reason)) accountType = 'PERSONAL';
   if (PROJECT_CONTRADICTION_TYPES.has(accountType) && reasonConfirmsProject(reason)) accountType = 'PROJECT';
-  return ScreeningOutputSchema.parse({ accountType, reason, ...(confidence !== undefined && Number.isFinite(confidence) ? { confidence } : {}) });
+  const chainCategory = normalizeCategory(nested.chainCategory ?? nested.chain_category ?? nested.chain ?? nested.链分类);
+  let playbookCategory = normalizeCategory(nested.playbookCategory ?? nested.playbook_category ?? nested.playbook ?? nested.gameplay ?? nested.玩法板块);
+  if (isFunHandle((nested.handle as string | undefined) ?? '')) playbookCategory = 'Launchpad';
+  return ScreeningOutputSchema.parse({ accountType, reason, ...(confidence !== undefined && Number.isFinite(confidence) ? { confidence } : {}), ...(chainCategory ? { chainCategory } : {}), ...(playbookCategory ? { playbookCategory } : {}) });
 }
 
 export class AccountScreeningService {
@@ -258,16 +280,18 @@ export class AccountScreeningService {
       try {
         const result = await this.router.complete({
           purpose: 'screening',
-          system: '你是短期投机/创业项目发现系统的 AI 初筛器。唯一筛选标准是：账号是否代表一个粉丝规模较小、正在构建、发行、测试、增长或即将上线的短期投机型项目机会。默认将粉丝数达到或超过10000视为较高体量：这类账号若主要做空投、积分、测试网或早期激励，应判定为范围外并 blocked；已经完善、成熟运营的协议或平台（例如 Polymarket 等）无论粉丝数多少都判定为范围外并 blocked。只保留粉丝数较少的独立创业/短期投机项目、发射台、个人发币项目，以及 NFT/PFP/头像/数字藏品/收藏品官方项目；NFT 官方项目属于允许保留类型，只有 NFT 收藏者、NFT KOL 或个人账号才过滤。粉丝数少、发帖数量少但单帖浏览量较高的疑似创业项目，属于重点早期信号，必须保留，不得仅因发帖少或浏览量高而排除。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号、企业/品牌官方账号、VC/基金/资本投资机构账号、公链/L1/L2/区块链网络官方账号、中心化或去中心化交易所官方账号、基金会官方账号，以及这些主体的附属账号。附属账号包括明确隶属于公链、交易所或基金会的生态、开发者关系/DevRel、社区、客服、地区、中文、活动、资助、Labs 等官方账号。账号本身是官方主体时，无论粉丝数多少都 blocked；独立项目仅仅部署在某条链、获得基金会支持、使用交易所服务或与这些机构合作，不属于附属账号，不得因此排除。企业、资本、公链、交易所、基金会及附属账号即使发布加密内容，也不代表本项目池中的独立早期创业项目。只有当账号明确属于传统金融业务、经纪服务或仅奖励真实股票的非加密主体，且没有任何短期项目构建/交付信号时，才判定为 TRADFI 并 blocked；这不是新股研究判断。若同时存在加密项目、链上产品、测试网、空投或创业交付证据，应按项目证据综合判断，不得因单个金融词汇否定。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
-          user: JSON.stringify(input),
-          schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT|TRADFI|CORPORATE|CAPITAL|CHAIN|EXCHANGE|FOUNDATION|AFFILIATE","reason":"中文具体判断理由","confidence":0.0}'
+          system: '你是短期投机/创业项目发现系统的 AI 初筛器。唯一筛选标准是：账号是否代表一个粉丝规模较小、正在构建、发行、测试、增长或即将上线的短期投机型项目机会。默认将粉丝数达到或超过10000视为较高体量：这类账号若主要做空投、积分、测试网或早期激励，应判定为范围外并 blocked；已经完善、成熟运营的协议或平台（例如 Polymarket 等）无论粉丝数多少都判定为范围外并 blocked。只保留粉丝数较少的独立创业/短期投机项目、发射台、个人发币项目，以及 NFT/PFP/头像/数字藏品/收藏品官方项目；NFT 官方项目属于允许保留类型，只有 NFT 收藏者、NFT KOL 或个人账号才过滤。粉丝数少、发帖数量少但单帖浏览量较高的疑似创业项目，属于重点早期信号，必须保留，不得仅因发帖少或浏览量高而排除。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号、企业/品牌官方账号、VC/基金/资本投资机构账号、公链/L1/L2/区块链网络官方账号、中心化或去中心化交易所官方账号、基金会官方账号，以及这些主体的附属账号。附属账号包括明确隶属于公链、交易所或基金会的生态、开发者关系/DevRel、社区、客服、地区、中文、活动、资助、Labs 等官方账号。账号本身是官方主体时，无论粉丝数多少都 blocked；独立项目仅仅部署在某条链、获得基金会支持、使用交易所服务或与这些机构合作，不属于附属账号，不得因此排除。企业、资本、公链、交易所、基金会及附属账号即使发布加密内容，也不代表本项目池中的独立早期创业项目。只有当账号明确属于传统金融业务、经纪服务或仅奖励真实股票的非加密主体，且没有任何短期项目构建/交付信号时，才判定为 TRADFI 并 blocked；这不是新股研究判断。若同时存在加密项目、链上产品、测试网、空投或创业交付证据，应按项目证据综合判断，不得因单个金融词汇否定。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。除 accountType 和 reason 外，还必须返回 chainCategory（链分类）和 playbookCategory（玩法板块）。链分类可选 Solana、Base、Ethereum、Arbitrum、Optimism、BNB Chain、Polygon、Avalanche、Sui、Aptos、Monad、Zcash、ARC、Litecoin、Cosmos、Starknet、zkSync、Scroll、Linea、TON、Hyperliquid、多链、待研判；玩法板块可选 Launchpad、NFT / 游戏、Meme、空投 / 积分 / 测试网、DeFi / 交易、质押 / 收益、DePIN / 节点、AI / Agent、SocialFi / 社交、基础设施、待研判。账号 ID 以 .fun 结尾时，无论其他描述如何，playbookCategory 必须为 Launchpad，不能归类为 DeFi。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
+          user: JSON.stringify({ ...input, handle: input.handle }),
+          schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT|TRADFI|CORPORATE|CAPITAL|CHAIN|EXCHANGE|FOUNDATION|AFFILIATE","reason":"中文具体判断理由","chainCategory":"Solana|Base|Ethereum|Arbitrum|Optimism|BNB Chain|Polygon|Avalanche|Sui|Aptos|Monad|Zcash|ARC|Litecoin|Cosmos|Starknet|zkSync|Scroll|Linea|TON|Hyperliquid|多链|待研判","playbookCategory":"Launchpad|NFT / 游戏|Meme|空投 / 积分 / 测试网|DeFi / 交易|质押 / 收益|DePIN / 节点|AI / Agent|SocialFi / 社交|基础设施|待研判","confidence":0.0}'
         });
-        const nftOutput = applyNftProjectGuard(input, applyScopeGuard(input, parseModelOutput(result.response.text)));
+        let parsed = parseModelOutput(result.response.text);
+        if (isFunHandle(input.handle)) parsed = { ...parsed, playbookCategory: 'Launchpad' };
+        const nftOutput = applyNftProjectGuard(input, applyScopeGuard(input, parsed));
         const entityOutput = applyEntityGuard(input, nftOutput);
         const stageGuard = applyEarlyStageGuard(input, entityOutput);
         const output = stageGuard.output;
         const blocked = stageGuard.blocked || BLOCKED_TYPES.has(output.accountType);
-        return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: detailedChineseReason(input, output.accountType, output.reason), providerName: result.provider.name, model: result.response.model, attempts };
+        return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: detailedChineseReason(input, output.accountType, output.reason), chainCategory: output.chainCategory, playbookCategory: output.playbookCategory, providerName: result.provider.name, model: result.response.model, attempts };
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
       }
@@ -281,6 +305,6 @@ export class AccountScreeningService {
     const stageGuard = applyEarlyStageGuard(input, unavailable);
     const output = stageGuard.output;
     const blocked = stageGuard.blocked || BLOCKED_TYPES.has(output.accountType);
-    return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: detailedChineseReason(input, output.accountType, output.reason), attempts };
+    return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: detailedChineseReason(input, output.accountType, output.reason), ...(isFunHandle(input.handle) ? { playbookCategory: 'Launchpad' } : {}), attempts };
   }
 }
