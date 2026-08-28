@@ -89,6 +89,25 @@ describe('research-project handler', () => {
     expect(versions.rows[0]?.rendered_markdown).toContain('AI 调研报告');
   });
 
+  it('sends post heat and account activity metrics to the V2 prompt', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('metrics-user', 'metrics', 'Metrics Project') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    await database.query(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'metrics-raw', '{}'::jsonb, 'decoded')`);
+    const raw = await database.query<{ id: string }>('select id from raw_events limit 1');
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, x_post_url, content, data) values ($1, $2, 'metrics-user', 'new_tweet', now(), 'https://x.com/metrics/status/1', '产品即将开放测试', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify({ tweet: { views: 92000, like_count: 3100, retweet_count: 420, reply_count: 180 }, user: { followers_count: 680 } })]);
+    let promptUser = '';
+    const base = adapter({ count: 0 });
+    const captureAdapter: AiProviderAdapter = { ...base, complete: async (request) => { promptUser = request.user; return base.complete(request); } };
+    await createResearchProjectHandler(database, new AiProviderRouter([captureAdapter]))({ id: 'job-metrics', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:metrics-user', payload: { projectId: project.rows[0].id } });
+    expect(promptUser).toContain('浏览 92000');
+    expect(promptUser).toContain('点赞 3100');
+    expect(promptUser).toContain('回复 180');
+    expect(promptUser).toContain('粉丝 680');
+    expect(promptUser).toContain('时间：');
+    expect(promptUser).not.toContain('已完成事项、未完成事项');
+  });
+
   it('skips excluded projects before calling AI', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, status) values ('43', 'excluded', 'excluded') returning id`);

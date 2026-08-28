@@ -251,7 +251,27 @@ function assertReportComplete(report: ReportDocument): void {
 
 function signalExcerpt(signal: SignalRow): string {
   const count = signal.common_follow_count == null ? '' : `共同关注 ${signal.common_follow_count} 人。`;
-  return `${count}${signal.content?.trim() || `Alpha 信号类型：${signal.type}`}`.slice(0, 600);
+  const data = record(signal.data);
+  const candidates = [data, record(data.tweet), record(data.status), record(data.post), record(data.metrics), record(data.user), record(data.author)];
+  const labels: Array<[string, string[]]> = [
+    ['浏览', ['views', 'view_count', 'impression_count', 'impressions']],
+    ['点赞', ['likes', 'like_count', 'favorite_count', 'favorites']],
+    ['转发', ['retweets', 'retweet_count', 'reposts', 'repost_count']],
+    ['回复', ['replies', 'reply_count', 'comment_count']],
+    ['引用', ['quotes', 'quote_count']],
+    ['粉丝', ['followers', 'followers_count', 'follower_count']]
+  ];
+  const metrics = labels.flatMap(([label, keys]) => {
+    for (const candidate of candidates) {
+      for (const key of keys) {
+        const value = candidate[key];
+        if ((typeof value === 'number' && Number.isFinite(value)) || (typeof value === 'string' && value.trim())) return `${label} ${value}`;
+      }
+    }
+    return [];
+  });
+  const metricText = metrics.length ? `指标：${metrics.join('，')}。` : '';
+  return `时间：${signal.occurred_at}。${count}${metricText}${signal.content?.trim() || `Alpha 信号类型：${signal.type}`}`.slice(0, 900);
 }
 
 function evidenceHash(signal: SignalRow, excerpt: string): string {
