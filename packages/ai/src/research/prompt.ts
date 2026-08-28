@@ -16,6 +16,14 @@ export interface ResearchPromptInput {
   webSearch?: readonly string[];
 }
 
+/** 固定写作模板：每次请求都会同时注入 user 和 system prompt，确保主/备用 Grok 一致。 */
+export const REPORT_STYLE_TEMPLATE = [
+  'coreInfo.summary：{项目名} (@{账号}) 定位为{核心定位/叙事}，通过{产品机制与用户参与方式}服务{目标用户}；项目覆盖{链/生态}，以{收入或激励机制}形成参与动力；当前{集成、上线或测试进展}，关键窗口是{主网、campaign、白名单、NFT mint 或首发 meme 等}，后续需验证{具体交付与增长指标}。',
+  'focusReason.strengths：作为{赛道}的早期布局者，{具体事实}带来{优势逻辑}，适合{短期投机/创业参与方式}；{第二项事实}提升{传播、用户或生态价值}，但必须绑定公开证据。',
+  'focusReason.weaknesses：{团队、审计、产品、数据或竞争方面的缺口}导致{对落地、留存或流动性的影响}；若{叙事/流量/交付条件}不成立，{下行风险}会放大，后续需验证{具体检查动作}。',
+  'focusReason.reason：值得小仓试错。该账号获得{实际监控/Alpha 信号}，叠加{早期窗口}，存在{白名单、NFT mint、首发 meme、campaign 等}机会；尽管{硬数据、背书或热度证据缺口}，从小资金博高赔率角度仍具备{不对称价值}，建议跟踪{具体动作}，严格小仓参与而非重仓。'
+].join('\n');
+
 export function buildResearchReportPrompt(input: ResearchPromptInput): { system: string; user: string } {
   const tracks = L2_RESEARCH_TRACKS.map((track, index) => `${index + 1}. ${track.title}（${track.key}）：${track.question}`).join('\n');
   const user = [
@@ -23,6 +31,9 @@ export function buildResearchReportPrompt(input: ResearchPromptInput): { system:
     `X 账号：${input.project.handle}`,
     `阶段：${input.project.stage ?? '暂未确认'}`,
     `摘要：${input.project.summary ?? '暂未确认'}`,
+    '',
+    '【强制写作模板】以下模板只规定表达方式，花括号内容必须替换为该项目的真实事实；没有证据就写“暂无公开证据”，禁止照抄示例或编造：',
+    REPORT_STYLE_TEMPLATE,
     '',
     '请按以下 1-6 结构输出一份详细、可直接阅读的中文投研文档；每一节都必须给出事实、证据、判断和不确定性，不得只写一句话或重复“暂未确认”。',
     '1. 项目核心信息：必须写成“项目名 (@账号) 定位为……”的完整定位段落，至少 4-7 个有信息量的句子。依次说明核心定位与叙事、产品机制/用户如何参与、覆盖的链与生态、商业模式或收入分配、当前集成/上线进展、关键时间窗口和主要验证点；把简介中的关键词转译成可验证含义。不要只写“这是一个 Web3 项目/平台”或一句泛化摘要。若某项没有公开证据，写明“暂无公开证据”，但仍要完成其余维度的分析。',
@@ -44,7 +55,7 @@ export function buildResearchReportPrompt(input: ResearchPromptInput): { system:
     `\n可用 Evidence：\n${input.evidence.length ? input.evidence.map((item) => `- ${item}`).join('\n') : '- 暂无'}`,
     `\n联网搜索结果（仅作为公开资料线索，必须结合 Evidence 谨慎判断）：\n${input.webSearch?.length ? input.webSearch.map((item) => `- ${item}`).join('\n') : '- 未找到公开搜索结果，请明确标注“暂无公开资料”'}`
   ].join('\n');
-  return { system: '你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook、l2Tracks、independentReview、score、risksEvidence）；coreInfo.summary 必须采用“项目名 (@账号) 定位为……”的项目定位模板，具体展开定位、机制、用户玩法、生态、收入机制、当前进展和验证点，不能只写泛化摘要；不要生成独立的项目背景章节或背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据；focusReason.reason 必须是交易决策式完整段落，首句明确给出“值得小仓试错/持续观察/暂不纳入”，并说明早期窗口、证据缺口、跟踪动作和不重仓边界。中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入章节编号，禁止把多个章节合并到同一个字段。必须完成 1-6 节中文分析、六赛道深挖和独立复核轮证伪；正文要充分展开，每个字段优先使用完整段落和多条具体要点。', user };
+  return { system: `你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook、l2Tracks、independentReview、score、risksEvidence）；coreInfo.summary 必须采用“项目名 (@账号) 定位为……”的项目定位模板，具体展开定位、机制、用户玩法、生态、收入机制、当前进展和验证点，不能只写泛化摘要；不要生成独立的项目背景章节或背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据；focusReason.reason 必须是交易决策式完整段落，首句明确给出“值得小仓试错/持续观察/暂不纳入”，并说明早期窗口、证据缺口、跟踪动作和不重仓边界。以下是必须遵循的固定写作模板（花括号必须替换为真实证据）：\n${REPORT_STYLE_TEMPLATE}\n中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入章节编号，禁止把多个章节合并到同一个字段。必须完成 1-6 节中文分析、六赛道深挖和独立复核轮证伪；正文要充分展开，每个字段优先使用完整段落和多条具体要点。`, user };
 }
 
 export type ResearchReportDocument = ReportDocument;
