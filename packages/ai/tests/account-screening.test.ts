@@ -66,6 +66,11 @@ describe('AccountScreeningService', () => {
     expect(result).toMatchObject({ decision: 'blocked', accountType: 'PROJECT' });
     expect(result.reason).toContain('成熟运营');
   });
+  it('keeps a small startup account with few posts but strong post views', async () => {
+    const reason = '简介证据：正在构建链上创业产品；推文证据：仅发布2条帖子但单帖浏览量92000；粉丝/认证证据：粉丝数680，未认证；项目类型结论：早期创业项目，应保留。';
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason }))]));
+    await expect(service.classify({ ...input, handle: 'quiet_builder', bio: 'Building a new onchain product.', sourceText: '2 posts; latest post views 92000', followerCount: 680 })).resolves.toMatchObject({ decision: 'allowed', accountType: 'PROJECT' });
+  });
   it('blocks traditional stock or broker profiles as TRADFI instead of treating them as KOL', async () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '简介证据：像素经纪人通过工作获得真实股票；推文证据：未提供；粉丝/认证证据：粉丝数4884，未认证；项目类型结论：项目账号。' }))]));
     await expect(service.classify({ ...input, handle: 'thefirmbrokers', displayName: 'FIRM BROKERS', bio: '5,000 pixel brokers who work every hour and pay you in real stocks.' })).resolves.toMatchObject({ decision: 'blocked', accountType: 'TRADFI' });
