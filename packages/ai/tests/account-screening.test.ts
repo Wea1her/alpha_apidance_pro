@@ -54,6 +54,18 @@ describe('AccountScreeningService', () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'KOL', reason }))]));
     await expect(service.classify({ ...input, handle: 'zec_bit', displayName: 'Zec Bit', bio: 'The first NFT collection on ZEC', sourceText: 'Mint soon; whitelist is open.' })).resolves.toMatchObject({ decision: 'allowed', accountType: 'NFT' });
   });
+  it('blocks high-follower airdrop and testnet campaigns from the early pool', async () => {
+    const reason = '简介证据：大型测试网项目；推文证据：持续进行空投和积分活动；粉丝/认证证据：粉丝数125000，已认证；项目类型结论：项目账号。';
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason }))]));
+    await expect(service.classify({ ...input, handle: 'large_testnet', bio: 'Testnet airdrop points campaign', followerCount: 125000, verified: true })).resolves.toMatchObject({ decision: 'blocked', accountType: 'PROJECT' });
+  });
+  it('blocks established protocols such as Polymarket', async () => {
+    const reason = '简介证据：预测市场协议；推文证据：产品已完善并持续运营；粉丝/认证证据：粉丝数300000，已认证；项目类型结论：项目账号。';
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason }))]));
+    const result = await service.classify({ ...input, handle: 'Polymarket', displayName: 'Polymarket', bio: 'The world\'s largest prediction market.', followerCount: 300000, verified: true });
+    expect(result).toMatchObject({ decision: 'blocked', accountType: 'PROJECT' });
+    expect(result.reason).toContain('成熟运营');
+  });
   it('blocks traditional stock or broker profiles as TRADFI instead of treating them as KOL', async () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '简介证据：像素经纪人通过工作获得真实股票；推文证据：未提供；粉丝/认证证据：粉丝数4884，未认证；项目类型结论：项目账号。' }))]));
     await expect(service.classify({ ...input, handle: 'thefirmbrokers', displayName: 'FIRM BROKERS', bio: '5,000 pixel brokers who work every hour and pay you in real stocks.' })).resolves.toMatchObject({ decision: 'blocked', accountType: 'TRADFI' });
