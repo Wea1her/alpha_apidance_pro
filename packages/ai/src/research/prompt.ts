@@ -25,7 +25,6 @@ export const REPORT_STYLE_TEMPLATE = [
 ].join('\n');
 
 export function buildResearchReportPrompt(input: ResearchPromptInput): { system: string; user: string } {
-  const tracks = L2_RESEARCH_TRACKS.map((track, index) => `${index + 1}. ${track.title}（${track.key}）：${track.question}`).join('\n');
   const user = [
     `项目：${input.project.name}`,
     `X 账号：${input.project.handle}`,
@@ -42,20 +41,14 @@ export function buildResearchReportPrompt(input: ResearchPromptInput): { system:
     '4. 缺点：以 1-3 段完整连贯的中文分析输出，不要写成关键词列表。参照“团队/审计/数据存在什么缺口，同类竞争和热度如何，分别对落地、留存和风险造成什么影响”的句式，每段至少包含缺失或负面事实、影响和后续验证方向，使用分号串联相关判断。',
     '5. 关注理由：用 1-3 个完整段落输出交易决策式判断，首句必须明确写“值得小仓试错”“持续观察”或“暂不纳入”。参照“该账号获得多少监控池关注/Alpha caller 跟进，叠加哪些主网、测试网 campaign、白名单、NFT mint 或首发 meme 早期窗口；尽管哪些硬数据、背书和热度证据不足，但从小资金博高赔率角度为何仍有或没有不对称价值；建议跟踪哪些具体动作、参与边界和停止条件，明确不重仓”的句式。信号数量只能使用实际证据，缺失时写“暂无公开证据”，不得编造；不要把“新股申购/传统股票研究”当作本项目的判断标准。',
     '6. 标签：输出 3-8 个具体中文标签，并覆盖生态/赛道、产品形态和阶段特征。若项目核心是 Launchpad/发射台/代币发射平台，必须单独标注 Launchpad，不要把它写成 DeFi；只有核心产品是交易、借贷或收益协议时才使用 DeFi 标签。',
-    '',
-    '请完成 L2 六赛道深挖：',
-    tracks,
-    '',
-    '随后进行独立复核轮：把核心论点改写成可证伪假设，列出检查项、反证和最终复核结论。',
     '必须先使用 Grok X Search 搜索该账号的公开资料、近期推文和项目官方页面，再结合 Alpha 信号形成判断；无法找到的内容必须明确写“暂无公开证据”。',
-    '最后输出 0-100 总分、0-1 置信度、六个维度各自 0-10 分，以及重点关注/持续观察/暂不纳入判断。',
-    '所有重要判断必须绑定给定 evidenceId；没有证据就写“暂未确认”，禁止虚构来源。',
+    '所有重要判断必须基于给定证据或联网搜索结果；没有证据就写“暂无公开证据”，禁止虚构来源。不要进行 L2 六赛道深挖、独立复核轮、评分总览或风险与证据链等额外分析环节。',
     '',
     `信号证据：\n${input.signals.length ? input.signals.map((item) => `- ${item}`).join('\n') : '- 暂无'}`,
     `\n可用 Evidence：\n${input.evidence.length ? input.evidence.map((item) => `- ${item}`).join('\n') : '- 暂无'}`,
     `\n联网搜索结果（仅作为公开资料线索，必须结合 Evidence 谨慎判断）：\n${input.webSearch?.length ? input.webSearch.map((item) => `- ${item}`).join('\n') : '- 未找到公开搜索结果，请明确标注“暂无公开资料”'}`
   ].join('\n');
-  return { system: `你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook、l2Tracks、independentReview、score、risksEvidence）；coreInfo.summary 必须采用“项目名 (@账号) 定位为……”的项目定位模板，具体展开定位、机制、用户玩法、生态、收入机制、当前进展和验证点，不能只写泛化摘要；不要生成独立的项目背景章节或背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据；focusReason.reason 必须是交易决策式完整段落，首句明确给出“值得小仓试错/持续观察/暂不纳入”，并说明早期窗口、证据缺口、跟踪动作和不重仓边界。以下是必须遵循的固定写作模板（花括号必须替换为真实证据）：\n${REPORT_STYLE_TEMPLATE}\n中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入章节编号，禁止把多个章节合并到同一个字段。必须完成 1-6 节中文分析、六赛道深挖和独立复核轮证伪；正文要充分展开，每个字段优先使用完整段落和多条具体要点。`, user };
+  return { system: `你是严谨的中文加密项目研究员。你可以并且必须使用 X Search 搜索目标账号和项目的公开信息。只返回符合 ReportDocumentSchema 的 JSON，不要返回 Markdown 或额外解释。JSON 键名必须严格使用 Schema 定义的英文键名（例如 coreInfo、focusReason、thesis、playbook）；coreInfo.summary 必须采用“项目名 (@账号) 定位为……”的项目定位模板，具体展开定位、机制、用户玩法、生态、收入机制、当前进展和验证点，不能只写泛化摘要；不要生成独立的项目背景章节或背书账号名单，也不要用传统股票/新股申购研究框架替代加密项目判断。focusReason.currentProgress 只能写最近帖子分析，禁止复述简介、共同关注/粉丝数据、Alpha evidenceId 或关注事件元数据；focusReason.reason 必须是交易决策式完整段落，首句明确给出“值得小仓试错/持续观察/暂不纳入”，并说明早期窗口、证据缺口、跟踪动作和不重仓边界。以下是必须遵循的固定写作模板（花括号必须替换为真实证据）：\n${REPORT_STYLE_TEMPLATE}\n只输出模板要求的六节正文，不要进行 L2 六赛道深挖、独立复核轮、评分总览或风险与证据链等额外分析环节。中文只写在字段值中，不要把章节标题当作 JSON 键名；每个字段只能填写该字段对应的正文，禁止在字符串开头加入章节编号，禁止把多个章节合并到同一个字段。`, user };
 }
 
 export type ResearchReportDocument = ReportDocument;
