@@ -61,6 +61,32 @@ describe('project tweet history route', () => {
     expect(numericResponse.json<{ items: Array<{ handle: string }> }>().items).toHaveLength(1005);
   });
 
+  it('defensively hides institutional account types from the approved pool', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    await database.query(`
+      insert into projects (x_user_id, current_handle, status)
+      values ('entity-chain', 'chain_official', 'active'), ('entity-exchange', 'exchange_official', 'active'),
+             ('entity-foundation', 'foundation_official', 'active'), ('entity-affiliate', 'affiliate_official', 'active'),
+             ('entity-project', 'early_project', 'active')
+    `);
+    await database.query(`
+      insert into screening_decisions (project_id, decision, account_type, reason)
+      select id, 'allowed',
+        case current_handle
+          when 'chain_official' then 'CHAIN'
+          when 'exchange_official' then 'EXCHANGE'
+          when 'foundation_official' then 'FOUNDATION'
+          when 'affiliate_official' then 'AFFILIATE'
+          else 'PROJECT'
+        end,
+        '测试分类'
+      from projects where x_user_id like 'entity-%'
+    `);
+    const app = Fastify(); apps.push(app); registerProjectRoutes(app, { database }); await app.ready();
+    const response = await app.inject({ method: 'GET', url: '/api/projects?filter=all&limit=all' });
+    expect(response.json<{ items: Array<{ handle: string }> }>().items.map((item) => item.handle)).toEqual(['early_project']);
+  });
+
   it('classifies launchpad projects separately from DeFi', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name, status, highest_star) values ('launchpad-user', 'launchpad_xyz', 'Launchpad XYZ', 'active', 2) returning id`);

@@ -46,5 +46,14 @@ describe('migrateDatabase', () => {
       'surges',
       'trench_memberships'
     ]);
+
+    await expect(database.query(
+      `insert into projects (x_user_id, current_handle) values ('institution-types', 'institution_types') returning id`
+    ).then(async (project) => database.query(
+      `insert into screening_decisions (project_id, decision, account_type, reason)
+       select $1, 'blocked', account_type, '机构账号'
+       from unnest(array['CHAIN', 'EXCHANGE', 'FOUNDATION', 'AFFILIATE']) as account_type`,
+      [(project.rows[0] as { id: string }).id]
+    ))).resolves.toBeDefined();
   });
 });

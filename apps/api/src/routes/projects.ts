@@ -98,7 +98,7 @@ export function registerProjectRoutes(app: FastifyInstance, options: ProjectRout
       : Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
     const clauses: string[] = [];
     const params: unknown[] = [];
-    const approvedClause = `p.status <> 'excluded' and exists (select 1 from screening_decisions sd where sd.project_id = p.id and sd.decision in ('allowed', 'manual_allowed') and sd.account_type not in ('CORPORATE', 'CAPITAL'))`;
+    const approvedClause = `p.status <> 'excluded' and exists (select 1 from screening_decisions sd where sd.project_id = p.id and sd.decision in ('allowed', 'manual_allowed') and sd.account_type not in ('KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI', 'CORPORATE', 'CAPITAL', 'CHAIN', 'EXCHANGE', 'FOUNDATION', 'AFFILIATE'))`;
     const starFilter = /^star_([1-5])$/.exec(filter);
     if (starFilter) clauses.push(`p.highest_star = ${Number(starFilter[1])}`, approvedClause);
     else if (filter === 'three_plus') clauses.push(`p.highest_star >= 3`, approvedClause);

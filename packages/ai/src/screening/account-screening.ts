@@ -14,7 +14,8 @@ export interface ScreeningInput {
 export type ScreeningDecision = 'allowed' | 'blocked' | 'failed' | 'pending_review';
 export interface ScreeningResult { decision: ScreeningDecision; accountType: AccountType | 'UNKNOWN'; reason: string; providerName?: string; model?: string; attempts: number; }
 
-const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI', 'CORPORATE', 'CAPITAL']);
+const BLOCKED_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI', 'CORPORATE', 'CAPITAL', 'CHAIN', 'EXCHANGE', 'FOUNDATION', 'AFFILIATE']);
+const PROJECT_CONTRADICTION_TYPES = new Set<AccountType>(['KOL', 'PERSONAL', 'DEV', 'MEDIA', 'TRADFI']);
 // “粉丝数较少”按 1 万作为默认早期项目阈值，后续可按盘面调整。
 export const EARLY_PROJECT_FOLLOWER_LIMIT = 10_000;
 
@@ -31,9 +32,13 @@ const FALLBACK_REASON: Record<AccountType, string> = {
     NFT: 'AI 判断该账号是 NFT、PFP、收藏品或数字藏品项目官方账号，作为短期项目保留观察。',
     TRADFI: 'AI 判断该账号属于传统金融或非加密主体，不属于短期加密投机/创业项目。',
     CORPORATE: 'AI 判断该账号属于企业或品牌官方账号，不属于早期短期投机/创业项目。',
-    CAPITAL: 'AI 判断该账号属于 VC、基金或资本投资机构账号，不属于早期项目主体。'
+    CAPITAL: 'AI 判断该账号属于 VC、基金或资本投资机构账号，不属于早期项目主体。',
+    CHAIN: 'AI 判断该账号属于公链、L1、L2 或区块链网络官方账号，不属于独立早期项目。',
+    EXCHANGE: 'AI 判断该账号属于中心化或去中心化交易所官方账号，不属于独立早期项目。',
+    FOUNDATION: 'AI 判断该账号属于基金会官方账号，不属于独立早期项目。',
+    AFFILIATE: 'AI 判断该账号属于公链、交易所或基金会的官方附属账号，不属于独立早期项目。'
 };
-const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = { PROJECT: '项目账号', ALPHA: 'Alpha 数据账号', UNKNOWN: '账号属性暂不明确', KOL: 'KOL 账号', PERSONAL: '个人账号', DEV: '个人开发者 / Dev 账号', MEDIA: '媒体 / 社媒账号', NFT: 'NFT / PFP / 数字藏品项目', TRADFI: '传统金融 / 非加密主体', CORPORATE: '企业 / 品牌官方账号', CAPITAL: 'VC / 基金 / 资本账号' };
+const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = { PROJECT: '项目账号', ALPHA: 'Alpha 数据账号', UNKNOWN: '账号属性暂不明确', KOL: 'KOL 账号', PERSONAL: '个人账号', DEV: '个人开发者 / Dev 账号', MEDIA: '媒体 / 社媒账号', NFT: 'NFT / PFP / 数字藏品项目', TRADFI: '传统金融 / 非加密主体', CORPORATE: '企业 / 品牌官方账号', CAPITAL: 'VC / 基金 / 资本账号', CHAIN: '公链 / 区块链网络官方账号', EXCHANGE: '交易所官方账号', FOUNDATION: '基金会官方账号', AFFILIATE: '官方附属账号' };
 
 function clip(value: string, max = 110): string { const normalized = value.replace(/\s+/gu, ' ').trim(); return normalized ? normalized.slice(0, max) : '未提供'; }
 
@@ -73,6 +78,10 @@ function normalizeAccountType(value: unknown): AccountType {
   if (['NFT', 'NFT项目', 'NFT账号', 'PFP', '头像项目', '收藏品', '数字藏品', 'NFT_COLLECTION'].includes(normalized)) return 'NFT';
   if (['CORPORATE', '企业', '企业账号', '品牌官方', '公司官方', '官方企业'].includes(normalized)) return 'CORPORATE';
   if (['CAPITAL', '资本', '投资机构', 'VC', '基金', '风投', '创投'].includes(normalized)) return 'CAPITAL';
+  if (['CHAIN', '公链', '公链官方', '区块链网络', '网络官方', 'L1', 'L2'].includes(normalized)) return 'CHAIN';
+  if (['EXCHANGE', '交易所', '交易所官方', 'CEX', 'DEX'].includes(normalized)) return 'EXCHANGE';
+  if (['FOUNDATION', '基金会', '基金会官方'].includes(normalized)) return 'FOUNDATION';
+  if (['AFFILIATE', '附属账号', '官方附属账号', '生态官方', '开发者关系', 'DEVREL'].includes(normalized)) return 'AFFILIATE';
   return 'UNKNOWN';
 }
 
@@ -85,7 +94,11 @@ function inferAccountTypeFromReason(reason: string): AccountType {
     && !/(?:NFT\s*项目|PFP\s*项目|官方账号|项目主体|collection\s*project)/iu.test(reason)) return 'PERSONAL';
   if (/(?:NFT|PFP|数字藏品|收藏品|头像项目|collectible)/i.test(reason)) return 'NFT';
   if (/(?:企业官方|品牌官方|公司账号|企业账号|公司官方)/iu.test(reason)) return 'CORPORATE';
-  if (/(?:VC|基金|投资机构|风投|创投|资本账号|投资组合)/iu.test(reason)) return 'CAPITAL';
+  if (/(?:基金会官方|官方基金会|foundation\s+(?:official\s+)?account)/iu.test(reason)) return 'FOUNDATION';
+  if (/(?:交易所官方|官方交易所|中心化交易所|去中心化交易所|crypto\s+exchange|centralized\s+exchange|decentralized\s+exchange)/iu.test(reason)) return 'EXCHANGE';
+  if (/(?:公链官方|区块链网络官方|L1\s*官方|L2\s*官方|official\s+(?:blockchain|chain|network))/iu.test(reason)) return 'CHAIN';
+  if (/(?:官方附属账号|官方(?:生态|开发者|社区|客服|地区|活动|资助)账号|developer\s+relations|devrel|official\s+(?:ecosystem|developer|community|support|regional|events?|grants?)\s+account)/iu.test(reason)) return 'AFFILIATE';
+  if (/(?:VC|基金(?!会)|投资机构|风投|创投|资本账号|投资组合)/iu.test(reason)) return 'CAPITAL';
   // Do not infer TRADFI from a negated mention such as “不是新股研究”.
   // The model must explicitly return TRADFI, or the profile scope guard below
   // must find a clearly non-crypto traditional-finance profile.
@@ -156,10 +169,36 @@ function applyNftProjectGuard(input: ScreeningInput, output: ScreeningOutput): S
 
 function applyEntityGuard(input: ScreeningInput, output: ScreeningOutput): ScreeningOutput {
   const identity = `${input.handle} ${input.displayName}`;
-  const profile = [identity, input.bio, input.sourceText, output.reason].filter(Boolean).join(' ');
+  // Entity guards must only inspect source profile evidence. Model reasons
+  // often contain negated phrases such as “不是交易所/基金会官方”; feeding
+  // those phrases back into positive regexes causes valid projects to be
+  // blocked by the very explanation that says they should be retained.
+  const profile = [identity, input.bio, input.sourceText].filter(Boolean).join(' ');
+  const handle = input.handle.replace(/^@/u, '').trim().toLowerCase();
+  const displayName = (input.displayName ?? '').trim().toLowerCase();
+  const knownChains = new Set(['ethereum', 'solana', 'solanafoundation', 'bnbchain', 'arbitrum', 'optimism', 'base', 'avalancheavax', '0xpolygon', 'sui_network', 'aptos', 'cosmos', 'celestiaorg', 'starknet', 'zksync', 'scroll_zkp', 'lineabuild', 'monad', 'ton_blockchain']);
+  const knownExchanges = new Set(['binance', 'coinbase', 'okx', 'bybit_official', 'krakenfx', 'kucoincom', 'gate_io', 'bitgetglobal', 'mexc_official', 'htx_global', 'upbitglobal', 'uniswap', 'pancakeswap']);
+  const knownChainIdentity = knownChains.has(handle) || knownChains.has(displayName.replace(/\s+/gu, ''));
+  const knownExchangeIdentity = knownExchanges.has(handle) || knownExchanges.has(displayName.replace(/\s+/gu, ''));
+  const foundation = /(?:foundation|基金会|fndn)/iu.test(identity)
+    || /(?:official\s+(?:account\s+(?:of|for)\s+)?(?:the\s+)?(?:[\w-]+\s+){0,3}foundation|foundation\s+(?:official\s+)?account|基金会官方|官方基金会)/iu.test(profile);
+  const compactHandle = handle.replace(/[^a-z0-9]/gu, '');
+  const exchangeIdentity = compactHandle.endsWith('exchange') || /(?:^|[\s._-])exchange(?:$|[\s._-])|交易所/iu.test(identity);
+  const exchange = knownExchangeIdentity || exchangeIdentity
+    || /(?:交易所官方|官方交易所|(?:crypto|centralized|decentralized)\s+exchange(?:\s+official)?|official\s+(?:account\s+(?:of|for)\s+)?(?:the\s+)?(?:[\w-]+\s+){0,3}(?:crypto\s+)?exchange)/iu.test(profile);
+  const chain = knownChainIdentity
+    || /(?:公链官方|区块链网络官方|official\s+(?:account\s+(?:of|for)\s+)?(?:the\s+)?(?:[\w-]+\s+){0,3}(?:blockchain|chain|layer\s*[12]|l[12]\s+network)|(?:layer\s*[12]|l[12]|public\s+blockchain)\s+(?:blockchain|network))/iu.test(profile);
+  const institutionParent = /(?:ethereum|solana|bnb|binance|coinbase|arbitrum|optimism|base|avalanche|polygon|sui|aptos|cosmos|celestia|starknet|zksync|scroll|linea|monad|ton|okx|bybit|kraken|kucoin|uniswap|pancakeswap)/iu.test(identity);
+  const affiliateRole = /(?:developers?|devrel|ecosystem|community|support|regional|events?|grants?|labs|builds|zh|cn|asia|中文|生态|开发者|社区|客服|地区|活动|资助)/iu.test(identity);
+  const affiliate = /(?:官方附属账号|官方(?:生态|开发者|社区|客服|地区|活动|资助)账号|developer\s+relations|devrel|official\s+(?:ecosystem|developers?|community|support|regional|events?|grants?)\s+(?:account|channel))/iu.test(profile)
+    || (institutionParent && affiliateRole);
   const corporateName = /(?:^|[^a-z])(nvidia|microsoft|apple|google|tesla|amazon|meta|intel|adobe|samsung|sony|oracle|ibm|openai)(?:$|[^a-z])/iu.test(identity);
   const corporate = corporateName || /(?:企业官方|品牌官方|公司官方|corporate\s+account|official\s+company|official\s+brand|科技公司)/iu.test(profile);
-  const capital = /(?:\bvc\b|venture\s+capital|投资机构|基金|风投|创投|资本管理|capital\s+(?:fund|partners?|ventures?)|asset\s+management)/iu.test(profile);
+  const capital = /(?:\bvc\b|venture\s+capital|投资机构|基金(?!会)|风投|创投|资本管理|capital\s+(?:fund|partners?|ventures?)|asset\s+management)/iu.test(profile);
+  if (foundation) return { ...output, accountType: 'FOUNDATION', reason: `${output.reason} 范围校验：账号本身是基金会官方主体，自动排除；基金会支持或投资某个独立项目不等同于该项目是基金会账号。`.slice(0, 500) };
+  if (exchange) return { ...output, accountType: 'EXCHANGE', reason: `${output.reason} 范围校验：账号本身是中心化或去中心化交易所官方主体，自动排除。`.slice(0, 500) };
+  if (chain) return { ...output, accountType: 'CHAIN', reason: `${output.reason} 范围校验：账号本身是公链、L1、L2 或区块链网络官方主体，自动排除。`.slice(0, 500) };
+  if (affiliate) return { ...output, accountType: 'AFFILIATE', reason: `${output.reason} 范围校验：账号是公链、交易所或基金会的官方生态、开发者、社区、地区、活动、支持或 Labs 等附属账号，自动排除。`.slice(0, 500) };
   if (capital) return { ...output, accountType: 'CAPITAL', reason: `${output.reason} 范围校验：账号体现 VC、基金或资本投资机构属性，自动排除。`.slice(0, 500) };
   if (corporate) return { ...output, accountType: 'CORPORATE', reason: `${output.reason} 范围校验：账号体现企业或品牌官方属性，自动排除。`.slice(0, 500) };
   return output;
@@ -204,7 +243,7 @@ function parseModelOutput(text: string): ScreeningOutput {
   let accountType = explicitType === 'UNKNOWN' || (explicitType === 'PROJECT' && inferredType === 'NFT') ? inferredType : explicitType;
   if (accountType === 'NFT' && /(?:NFT\s*收藏者|NFT\s*collector|PFP\s*holder|个人收藏|持有者)/iu.test(reason)
     && !/(?:NFT\s*项目|PFP\s*项目|官方账号|项目主体|collection\s*project)/iu.test(reason)) accountType = 'PERSONAL';
-  if (BLOCKED_TYPES.has(accountType) && reasonConfirmsProject(reason)) accountType = 'PROJECT';
+  if (PROJECT_CONTRADICTION_TYPES.has(accountType) && reasonConfirmsProject(reason)) accountType = 'PROJECT';
   return ScreeningOutputSchema.parse({ accountType, reason, ...(confidence !== undefined && Number.isFinite(confidence) ? { confidence } : {}) });
 }
 
@@ -219,9 +258,9 @@ export class AccountScreeningService {
       try {
         const result = await this.router.complete({
           purpose: 'screening',
-          system: '你是短期投机/创业项目发现系统的 AI 初筛器。唯一筛选标准是：账号是否代表一个粉丝规模较小、正在构建、发行、测试、增长或即将上线的短期投机型项目机会。默认将粉丝数达到或超过10000视为较高体量：这类账号若主要做空投、积分、测试网或早期激励，应判定为范围外并 blocked；已经完善、成熟运营的协议或平台（例如 Polymarket 等）无论粉丝数多少都判定为范围外并 blocked。只保留粉丝数较少的创业/短期投机项目、发射台、个人发币项目，以及 NFT/PFP/头像/数字藏品/收藏品官方项目；NFT 官方项目属于允许保留类型，只有 NFT 收藏者、NFT KOL 或个人账号才过滤。粉丝数少、发帖数量少但单帖浏览量较高的疑似创业项目，属于重点早期信号，必须保留，不得仅因发帖少或浏览量高而排除。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号、企业/品牌官方账号和 VC/基金/资本投资机构账号（例如英伟达官方、公司官方、Capital、Ventures、Fund 等）；企业或资本账号即使发布加密内容，也不代表本项目池中的早期创业项目。只有当账号明确属于传统金融业务、经纪服务或仅奖励真实股票的非加密主体，且没有任何短期项目构建/交付信号时，才判定为 TRADFI 并 blocked；这不是新股研究判断。若同时存在加密项目、链上产品、测试网、空投或创业交付证据，应按项目证据综合判断，不得因单个金融词汇否定。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
+          system: '你是短期投机/创业项目发现系统的 AI 初筛器。唯一筛选标准是：账号是否代表一个粉丝规模较小、正在构建、发行、测试、增长或即将上线的短期投机型项目机会。默认将粉丝数达到或超过10000视为较高体量：这类账号若主要做空投、积分、测试网或早期激励，应判定为范围外并 blocked；已经完善、成熟运营的协议或平台（例如 Polymarket 等）无论粉丝数多少都判定为范围外并 blocked。只保留粉丝数较少的独立创业/短期投机项目、发射台、个人发币项目，以及 NFT/PFP/头像/数字藏品/收藏品官方项目；NFT 官方项目属于允许保留类型，只有 NFT 收藏者、NFT KOL 或个人账号才过滤。粉丝数少、发帖数量少但单帖浏览量较高的疑似创业项目，属于重点早期信号，必须保留，不得仅因发帖少或浏览量高而排除。必须过滤 KOL、个人账号、个人开发者/dev 账号、媒体账号、企业/品牌官方账号、VC/基金/资本投资机构账号、公链/L1/L2/区块链网络官方账号、中心化或去中心化交易所官方账号、基金会官方账号，以及这些主体的附属账号。附属账号包括明确隶属于公链、交易所或基金会的生态、开发者关系/DevRel、社区、客服、地区、中文、活动、资助、Labs 等官方账号。账号本身是官方主体时，无论粉丝数多少都 blocked；独立项目仅仅部署在某条链、获得基金会支持、使用交易所服务或与这些机构合作，不属于附属账号，不得因此排除。企业、资本、公链、交易所、基金会及附属账号即使发布加密内容，也不代表本项目池中的独立早期创业项目。只有当账号明确属于传统金融业务、经纪服务或仅奖励真实股票的非加密主体，且没有任何短期项目构建/交付信号时，才判定为 TRADFI 并 blocked；这不是新股研究判断。若同时存在加密项目、链上产品、测试网、空投或创业交付证据，应按项目证据综合判断，不得因单个金融词汇否定。请结合简介、近期推文内容、粉丝数、认证状态、账号名称和账号定位判断；必要时使用 X Search 核对该账号公开资料。reason 必须使用简体中文且详细，明确写出“简介证据、推文证据、粉丝/认证证据、项目类型结论”，缺失字段要写“未提供”，禁止只写笼统结论。必须只返回 JSON。',
           user: JSON.stringify(input),
-          schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT|TRADFI|CORPORATE|CAPITAL","reason":"中文具体判断理由","confidence":0.0}'
+          schema: '{"accountType":"PROJECT|ALPHA|UNKNOWN|KOL|PERSONAL|DEV|MEDIA|NFT|TRADFI|CORPORATE|CAPITAL|CHAIN|EXCHANGE|FOUNDATION|AFFILIATE","reason":"中文具体判断理由","confidence":0.0}'
         });
         const nftOutput = applyNftProjectGuard(input, applyScopeGuard(input, parseModelOutput(result.response.text)));
         const entityOutput = applyEntityGuard(input, nftOutput);
@@ -235,6 +274,13 @@ export class AccountScreeningService {
     }
     // 初筛不再阻塞实时信号流等待人工判断：AI 暂时不可用时自动放行到实时信号流，
     // 但保留 UNKNOWN 和失败原因，方便后续自动重跑或在详情中追踪。
-    return { decision: 'allowed', accountType: 'UNKNOWN', reason: detailedChineseReason(input, 'UNKNOWN', 'AI 初筛暂不可用，已自动放行到实时信号流，系统将在后续重新尝试。'), attempts };
+    const unavailable = applyEntityGuard(input, applyNftProjectGuard(input, applyScopeGuard(input, {
+      accountType: 'UNKNOWN',
+      reason: 'AI 初筛暂不可用，已执行本地账号范围校验；系统将在后续重新尝试。'
+    })));
+    const stageGuard = applyEarlyStageGuard(input, unavailable);
+    const output = stageGuard.output;
+    const blocked = stageGuard.blocked || BLOCKED_TYPES.has(output.accountType);
+    return { decision: blocked ? 'blocked' : 'allowed', accountType: output.accountType, reason: detailedChineseReason(input, output.accountType, output.reason), attempts };
   }
 }
