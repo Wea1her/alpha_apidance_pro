@@ -75,6 +75,14 @@ describe('AccountScreeningService', () => {
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '简介证据：像素经纪人通过工作获得真实股票；推文证据：未提供；粉丝/认证证据：粉丝数4884，未认证；项目类型结论：项目账号。' }))]));
     await expect(service.classify({ ...input, handle: 'thefirmbrokers', displayName: 'FIRM BROKERS', bio: '5,000 pixel brokers who work every hour and pay you in real stocks.' })).resolves.toMatchObject({ decision: 'blocked', accountType: 'TRADFI' });
   });
+  it('blocks enterprise official accounts such as NVIDIA', async () => {
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '简介证据：NVIDIA 官方企业账号；推文证据：发布品牌和产品新闻；项目类型结论：项目账号。' }))]));
+    await expect(service.classify({ ...input, handle: 'nvidia', displayName: 'NVIDIA', bio: 'Official NVIDIA account.' })).resolves.toMatchObject({ decision: 'blocked', accountType: 'CORPORATE' });
+  });
+  it('blocks venture capital and fund accounts', async () => {
+    const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason: '简介证据：VC 投资机构；推文证据：发布投资组合和融资公告；项目类型结论：资本账号。' }))]));
+    await expect(service.classify({ ...input, handle: 'alpha_ventures', displayName: 'Alpha Ventures', bio: 'Venture capital fund investing in crypto.' })).resolves.toMatchObject({ decision: 'blocked', accountType: 'CAPITAL' });
+  });
   it('does not treat a negated stock-research phrase as TRADFI', async () => {
     const reason = '简介证据：正在构建链上交易产品；推文证据：明确说明这不是新股申购研究，而是测试网发布；粉丝/认证证据：未提供；项目类型结论：加密项目。';
     const service = new AccountScreeningService(new AiProviderRouter([adapter(JSON.stringify({ accountType: 'PROJECT', reason }))]));
