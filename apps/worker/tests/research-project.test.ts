@@ -80,6 +80,33 @@ describe('research-project handler', () => {
     expect(promptUser).not.toContain('已完成事项、未完成事项');
   });
 
+  it('passes Alpha follow_user profile evidence into the V3 research context', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('profile-user', 'UrVote_', 'UrVote') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'profile-raw', '{}'::jsonb, 'decoded') returning id`);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'profile-user', 'common_follow', now(), '用户简介：The governance layer for communities.', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify({ follow_user: { screen_name: 'UrVote_', description: 'The governance layer for communities. Vote, verify, and watch in real time.', followers_count: 455, statuses_count: 326 } })]);
+    let promptUser = '';
+    const base = adapter({ count: 0 });
+    const captureAdapter: AiProviderAdapter = { ...base, complete: async (request) => { promptUser = request.user; return base.complete(request); } };
+    await createResearchProjectHandler(database, new AiProviderRouter([captureAdapter]))({ id: 'job-profile', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:profile-user', payload: { projectId: project.rows[0].id } });
+    expect(promptUser).toContain('governance layer');
+    expect(promptUser).toContain('粉丝 455');
+  });
+
+  it('uses profile evidence instead of generic placeholders when the model omits the summary', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('placeholder-profile', 'UrVote_', 'UrVote') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'placeholder-profile-raw', '{}'::jsonb, 'decoded') returning id`);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'placeholder-profile', 'common_follow', now(), '用户简介：The governance layer for communities.', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify({ follow_user: { screen_name: 'UrVote_', description: 'The governance layer for communities. Vote, verify, and watch in real time.', followers_count: 455 } })]);
+    const placeholderAdapter: AiProviderAdapter = { ...adapter({ count: 0 }), complete: async () => { const report = reportFor(); report.coreInfo.summary = '公开定位资料不足，暂无公开证据，暂无公开证据。'; return { text: JSON.stringify(report), model: 'research' }; } };
+    await createResearchProjectHandler(database, new AiProviderRouter([placeholderAdapter]))({ id: 'job-placeholder-profile', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:placeholder-profile', payload: { projectId: project.rows[0].id } });
+    const result = await database.query<{ rendered_markdown: string }>('select rendered_markdown from report_versions');
+    expect(result.rows[0]?.rendered_markdown).toContain('governance layer');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('公开定位资料不足，暂无公开证据，暂无公开证据');
+  });
+
   it('replaces unfilled template placeholders instead of publishing them', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('placeholder-user', 'placeholder', 'Placeholder Project') returning id`);

@@ -10,7 +10,7 @@ import {
 import { OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
 
 interface ResearchProjectPayload { projectId: string; }
-interface ProjectRow { id: string; current_handle: string; display_name: string; status: string; }
+interface ProjectRow { id: string; current_handle: string; display_name: string; status: string; profile_summary?: string; }
 interface SignalRow { id: string; type: string; occurred_at: string; common_follow_count: number | null; x_post_url: string | null; content: string | null; data: unknown; }
 interface EvidenceRow { id: string; signal_id: string | null; url: string; excerpt: string; content_hash: string; }
 interface ReportVersionRow { id: string; version: number; status: string; }
@@ -75,16 +75,22 @@ function normalizeReport(raw: Record<string, unknown>, fallbackProject?: Project
   const focus = record(first(raw, ['focusReason', 'key_focus', 'focus_reason', 'focus', '关注理由', '重点关注理由']));
   const focusNarrative = typeof first(raw, ['focusReason', 'focus']) === 'string' ? stripSectionPrefix(text(first(raw, ['focusReason', 'focus']))) : '';
   const summaryCandidate = first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']);
-  const summaryValue = sectionValue(summaryCandidate, '项目核心信息', '公开定位资料不足，暂无法确认具体产品机制和参与方式。');
-  const summary = isTemplateEcho(summaryValue) ? '公开定位资料不足，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。' : summaryValue;
+  const summaryValue = sectionValue(summaryCandidate, '项目核心信息', fallbackProject?.profile_summary ? `公开简介显示${fallbackProject.profile_summary}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式。');
+  const summary = isTemplateEcho(summaryValue)
+    ? (fallbackProject?.profile_summary ? `公开简介显示${fallbackProject.profile_summary}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。')
+    : summaryValue;
   const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sectionValue(item, '优点')).filter((item) => item && !isTemplateEcho(item) && !/暂无(?:明确)?优势|暂无正向证据/u.test(item));
   const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sectionValue(item, '缺点')).filter((item) => item && !isTemplateEcho(item) && !/暂无(?:明确)?缺点|暂无负向证据/u.test(item));
-  const normalizedStrengths = rawStrengths.length ? rawStrengths : ['定位线索：账号围绕一个明确主题或产品方向展开，若后续出现可验证交付与用户反馈，可能形成早期差异化。'];
-  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : ['证据完整性风险：当前公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
+  const normalizedStrengths = rawStrengths.length ? rawStrengths : [fallbackProject?.profile_summary ? `公开简介已明确提出${fallbackProject.profile_summary}，说明账号至少形成了清晰的产品叙事和目标用户方向；若近期帖子能证明真实交付或用户参与，该定位具备早期传播与试错价值。` : '当前仅能确认账号围绕一个明确主题或产品方向展开；若后续出现可验证交付与用户反馈，可能形成早期差异化。'];
+  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : [fallbackProject?.profile_summary ? `公开资料目前主要停留在简介层面（${fallbackProject.profile_summary}），缺少产品演示、链上数据和持续更新证据，落地能力与用户留存仍无法确认；需要核对近期帖子、产品链接和实际使用记录。` : '公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
   const progressValue = sectionValue(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']), '当前进展', focusNarrative || text(first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
   const currentProgress = sanitizeCurrentProgress(isTemplateEcho(progressValue) ? '近期帖子不可公开读取，暂无法从公开正文确认账号活跃度与项目进展；待下一条公开帖子验证。' : progressValue);
   const reasonValue = sectionValue(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, '关注理由', currentProgress);
-  const normalizedReason = isTemplateEcho(reasonValue) ? '持续观察。当前公开资料和有效信号不足，暂不具备高确定性判断；建议继续跟踪近期帖子、产品交付和用户增长，在出现可验证进展前不扩大仓位。' : reasonValue;
+  const normalizedReason = isTemplateEcho(reasonValue)
+    ? (fallbackProject?.profile_summary
+      ? `持续观察。账号简介显示${fallbackProject.profile_summary}，具备明确的产品叙事线索；但近期公开帖子、真实用户使用和链上交付仍缺少可核验样本，暂不具备高确定性判断。建议优先跟踪下一条公开帖子、产品链接和用户增长变化，严格小仓参与而非重仓。`
+      : '持续观察。当前公开资料和有效信号不足，暂不具备高确定性判断；建议继续跟踪近期帖子、产品交付和用户增长，在出现可验证进展前不扩大仓位。')
+    : reasonValue;
   const stage = substantive(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '早期公开构建阶段（基于当前可见信号）');
   const normalizedTags = strings(first(raw, ['tags', '标签'])).map(stripSectionPrefix).flatMap((item) => item.split(/[、,，]/u).map((tag) => tag.trim()).filter(Boolean));
   return {
@@ -205,7 +211,29 @@ function signalExcerpt(signal: SignalRow): string {
     return [];
   });
   const metricText = metrics.length ? `指标：${metrics.join('，')}。` : '';
-  return `时间：${signal.occurred_at}。${count}${metricText}${signal.content?.trim() || `Alpha 信号类型：${signal.type}`}`.slice(0, 900);
+  const profile = profileExcerpt(signal);
+  return `时间：${signal.occurred_at}。${count}${metricText}${profile}${signal.content?.trim() || `Alpha 信号类型：${signal.type}`}`.slice(0, 1200);
+}
+
+function profileExcerpt(signal: SignalRow): string {
+  const data = record(signal.data);
+  const candidates = [record(data.follow_user), record(data.user), record(data.author), record(data.account)];
+  const profile = candidates.find((candidate) => Object.keys(candidate).length > 0);
+  if (!profile) return '';
+  const handle = text(profile.screen_name ?? profile.username ?? profile.handle);
+  const description = text(profile.description ?? profile.bio);
+  const followers = profile.followers_count ?? profile.followers;
+  const posts = profile.statuses_count ?? profile.posts_count ?? profile.tweets_count;
+  const pieces = [handle ? `账号 @${handle}` : '账号资料', description ? `简介：${description}` : '', followers != null ? `粉丝 ${followers}` : '', posts != null ? `发帖 ${posts}` : ''].filter(Boolean);
+  return pieces.length ? `账号资料：${pieces.join('；')}。` : '';
+}
+
+function profileSummary(signals: SignalRow[]): string {
+  for (const signal of signals) {
+    const excerpt = profileExcerpt(signal);
+    if (excerpt) return excerpt;
+  }
+  return '';
 }
 
 function evidenceHash(signal: SignalRow, excerpt: string): string {
@@ -297,20 +325,21 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
        from signals where project_id = $1 order by occurred_at desc limit 12`,
       [projectId]
     )).rows;
+    const enrichedProject: ProjectRow = { ...project, profile_summary: profileSummary(signals) };
     const evidence = await ensureEvidence(database, project, signals);
     const version = await ensureReportVersion(database, projectId, signals[0]?.id ?? null);
     await database.query(`update report_versions set status = 'collecting' where id = $1`, [version.id]);
     try {
       await database.query(`update report_versions set status = 'generating' where id = $1`, [version.id]);
       const prompt = buildResearchReportPrompt({
-        project: { name: project.display_name || project.current_handle, handle: project.current_handle },
+        project: { name: project.display_name || project.current_handle, handle: project.current_handle, summary: enrichedProject.profile_summary || undefined },
         signals: signals.map((signal) => `${signal.id}｜${signalExcerpt(signal)}`),
         evidence: evidence.map((item) => `${item.id}｜${item.excerpt}｜来源：${item.url}`)
       });
       let completion = await router.complete({ purpose: 'research', system: prompt.system, user: prompt.user, schema: 'ReportDocumentSchema' });
       let report: ReportDocument;
       try {
-        report = parseReport(completion.response.text, project);
+        report = parseReport(completion.response.text, enrichedProject);
         assertReportComplete(report);
       } catch (firstError) {
         // A few relays return a valid JSON skeleton after tool use. Ask once
@@ -321,7 +350,7 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
           user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请重新补齐 1-6 节可读中文正文，每节都要有具体事实、判断和不确定性。顶层仍只能输出 coreInfo、focusReason、tags，禁止输出核心论点、参与玩法、六赛道、独立复核、评分或风险证据链字段。`,
           schema: 'ReportDocumentSchema'
         });
-        report = parseReport(completion.response.text, project);
+        report = parseReport(completion.response.text, enrichedProject);
         assertReportComplete(report);
       }
       const citationEvidence = await ensureCitationEvidence(database, project, completion.response.citations ?? []);
