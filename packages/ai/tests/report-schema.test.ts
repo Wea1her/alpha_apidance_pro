@@ -12,6 +12,7 @@ describe('research report document', () => {
     expect(prompt.user).toContain('独立复核轮');
     expect(prompt.user).toContain('项目名 (@账号) 定位为');
     expect(prompt.user).toContain('商业模式或收入分配');
+    expect(prompt.user).toContain('完整连贯的中文分析');
     expect(prompt.user).not.toContain('已完成事项、未完成事项');
     expect(prompt.user).not.toContain('项目背景');
     expect(prompt.system).toContain('ReportDocumentSchema');
