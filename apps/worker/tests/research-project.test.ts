@@ -107,6 +107,20 @@ describe('research-project handler', () => {
     expect(result.rows[0]?.rendered_markdown).not.toContain('公开定位资料不足，暂无公开证据，暂无公开证据');
   });
 
+  it('publishes a complete evidence fallback when the AI provider is unavailable', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('fallback-ai', 'fallback.fun', 'Fallback') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'fallback-ai-raw', '{}'::jsonb, 'decoded') returning id`);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'fallback-ai', 'common_follow', now(), '用户简介：A community launchpad on Base.', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify(JSON.stringify({ follow_user: { screen_name: 'fallback.fun', description: 'A community launchpad on Base.', followers_count: 220 } }))]);
+    const unavailable: AiProviderAdapter = { ...adapter({ count: 0 }), complete: async () => { throw new Error('provider unavailable'); } };
+    await createResearchProjectHandler(database, new AiProviderRouter([unavailable]))({ id: 'job-fallback-ai', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:fallback-ai', payload: { projectId: project.rows[0].id } });
+    const result = await database.query<{ status: string; rendered_markdown: string }>('select status, rendered_markdown from report_versions');
+    expect(result.rows[0]?.status).toBe('ready');
+    expect(result.rows[0]?.rendered_markdown).toContain('community launchpad');
+    expect(result.rows[0]?.rendered_markdown).toContain('## 六、标签');
+  });
+
   it('replaces unfilled template placeholders instead of publishing them', async () => {
     const database = new PGlite(); databases.push(database); await migrateDatabase(database);
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('placeholder-user', 'placeholder', 'Placeholder Project') returning id`);

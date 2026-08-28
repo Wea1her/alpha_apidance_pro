@@ -99,8 +99,12 @@ function normalizeReport(raw: Record<string, unknown>, fallbackProject?: Project
     : reasonValue;
   const stage = substantive(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '早期公开构建阶段（基于当前可见信号）');
   const normalizedTags = strings(first(raw, ['tags', '标签'])).map(stripSectionPrefix).flatMap((item) => item.split(/[、,，]/u).map((tag) => tag.trim()).filter(Boolean));
+  const modelProjectName = text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']));
+  const projectName = fallbackProject?.display_name?.trim() || modelProjectName || '未命名项目';
+  const modelHandle = text(first(project, ['handle', 'xHandle', 'xAccount', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'xHandle', 'xAccount', 'account', '账号']));
+  const handle = fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : modelHandle || '@unknown';
   return {
-    coreInfo: { projectName: text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']) ?? fallbackProject?.display_name, '未命名项目'), handle: text(first(project, ['handle', 'xHandle', 'xAccount', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'xHandle', 'xAccount', 'account', '账号']), fallbackProject?.current_handle ? `@${fallbackProject.current_handle.replace(/^@/, '')}` : '@unknown'), summary, stage },
+    coreInfo: { projectName, handle, summary, stage },
     focusReason: { currentProgress, strengths: normalizedStrengths, weaknesses: normalizedWeaknesses, reason: normalizedReason },
     tags: normalizedTags.length ? normalizedTags : ['早期项目', '待持续验证']
   };
@@ -193,6 +197,41 @@ function assertReportComplete(report: ReportDocument): void {
   if (!report.focusReason.strengths.some(meaningful)) failures.push('focusReason.strengths');
   if (!report.focusReason.weaknesses.some(meaningful)) failures.push('focusReason.weaknesses');
   if (failures.length) throw new Error(`research output incomplete: ${failures.join(', ')}`);
+}
+
+function buildEvidenceFallbackReport(project: ProjectRow, signals: SignalRow[]): ReportDocument {
+  const profile = project.profile_summary?.trim();
+  const profileLower = (profile ?? '').toLowerCase();
+  const tweets = signals.filter((signal) => signal.type === 'new_tweet' && signal.content?.trim());
+  const latest = tweets[0];
+  const summary = profile
+    ? `${project.display_name || project.current_handle} (@${project.current_handle.replace(/^@/, '')}) 定位线索来自公开账号资料：${profile}；当前尚缺少足够的公开帖子、产品演示和链上交付信息，具体机制、用户参与方式与后续窗口需要继续核验。`
+    : `${project.display_name || project.current_handle} (@${project.current_handle.replace(/^@/, '')}) 的公开定位资料有限，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。`;
+  const progress = latest
+    ? `最近可见帖子发表于 ${latest.occurred_at}，内容为“${latest.content!.trim().slice(0, 260)}”；当前仅能依据该样本判断账号仍有公开活动，帖子热度、讨论质量和粉丝增长需要更多连续样本验证。`
+    : '最近帖子不可公开读取/暂无公开正文；因此无法可靠判断近期发帖频率、帖子热度、讨论度和粉丝增长速度，待下一条公开帖子验证。';
+  const reason = profile
+    ? `持续观察。公开资料显示${profile}，具备明确的产品叙事线索；但当前缺少近期公开帖子、真实用户使用和链上交付证据，暂不具备高确定性判断。建议优先跟踪下一条公开帖子、产品链接和用户增长变化，严格小仓参与而非重仓。`
+    : '持续观察。当前公开资料和有效信号不足，暂不具备高确定性判断；建议继续跟踪近期帖子、产品交付和用户增长，在出现可验证进展前不扩大仓位。';
+  const tags = [
+    /launchpad|launch pad|发射台|代币发射/iu.test(profileLower) || /\.fun$/iu.test(project.current_handle) ? 'Launchpad' : '',
+    /nft|pfp|数字藏品|收藏品/iu.test(profileLower) ? 'NFT / 游戏' : '',
+    /meme/iu.test(profileLower) ? 'Meme' : '',
+    /base/iu.test(profileLower) ? 'Base' : '',
+    /solana/iu.test(profileLower) ? 'Solana' : '',
+    /治理|governance|投票|vote/iu.test(profileLower) ? '社区治理' : '',
+    '早期项目', '待持续验证'
+  ].filter(Boolean).slice(0, 8);
+  return {
+    coreInfo: { projectName: project.display_name || project.current_handle, handle: `@${project.current_handle.replace(/^@/, '')}`, summary, stage: '早期公开构建阶段（基于当前可见信号）' },
+    focusReason: {
+      currentProgress: progress,
+      strengths: [profile ? `公开简介已经形成清晰的产品叙事：${profile}；若后续帖子能证明真实交付或用户参与，该方向具备早期传播与试错价值。` : '账号围绕一个明确主题或产品方向展开；若后续出现可验证交付与用户反馈，可能形成早期差异化。'],
+      weaknesses: [profile ? `目前证据主要停留在简介层面（${profile}），缺少产品演示、链上数据和持续更新记录，落地能力与用户留存仍无法确认；需要核对近期帖子、产品链接和实际使用记录。` : '公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'],
+      reason
+    },
+    tags
+  };
 }
 
 function signalExcerpt(signal: SignalRow): string {
@@ -342,31 +381,39 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
         signals: signals.map((signal) => `${signal.id}｜${signalExcerpt(signal)}`),
         evidence: evidence.map((item) => `${item.id}｜${item.excerpt}｜来源：${item.url}`)
       });
-      let completion = await router.complete({ purpose: 'research', system: prompt.system, user: prompt.user, schema: 'ReportDocumentSchema' });
+      let completion: Awaited<ReturnType<AiProviderRouter['complete']>> | undefined;
       let report: ReportDocument;
+      let fallbackError: string | undefined;
       try {
-        report = parseReport(completion.response.text, enrichedProject);
-        assertReportComplete(report);
-      } catch (firstError) {
-        // A few relays return a valid JSON skeleton after tool use. Ask once
-        // more with an explicit completeness constraint before failing the job.
-        completion = await router.complete({
-          purpose: 'research',
-          system: `${prompt.system}\n不得输出占位值。每个字段必须给出基于搜索或信号的具体判断；若没有证据，写明“暂无公开证据”并解释原因。`,
-          user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请重新补齐 1-6 节可读中文正文，每节都要有具体事实、判断和不确定性。顶层仍只能输出 coreInfo、focusReason、tags，禁止输出核心论点、参与玩法、六赛道、独立复核、评分或风险证据链字段。`,
-          schema: 'ReportDocumentSchema'
-        });
-        report = parseReport(completion.response.text, enrichedProject);
+        completion = await router.complete({ purpose: 'research', system: prompt.system, user: prompt.user, schema: 'ReportDocumentSchema' });
+        try {
+          report = parseReport(completion.response.text, enrichedProject);
+          assertReportComplete(report);
+        } catch (firstError) {
+          // A few relays return a valid JSON skeleton after tool use. Ask once
+          // more with an explicit completeness constraint before using evidence fallback.
+          completion = await router.complete({
+            purpose: 'research',
+            system: `${prompt.system}\n不得输出占位值。每个字段必须给出基于搜索或信号的具体判断；若没有证据，写明“暂无公开证据”并解释原因。`,
+            user: `${prompt.user}\n上一次输出不完整（${firstError instanceof Error ? firstError.message : '字段缺失'}）。请重新补齐 1-6 节可读中文正文，每节都要有具体事实、判断和不确定性。顶层仍只能输出 coreInfo、focusReason、tags，禁止输出核心论点、参与玩法、六赛道、独立复核、评分或风险证据链字段。`,
+            schema: 'ReportDocumentSchema'
+          });
+          report = parseReport(completion.response.text, enrichedProject);
+          assertReportComplete(report);
+        }
+      } catch (error) {
+        fallbackError = error instanceof Error ? error.message : String(error);
+        report = buildEvidenceFallbackReport(enrichedProject, signals);
         assertReportComplete(report);
       }
-      const citationEvidence = await ensureCitationEvidence(database, project, completion.response.citations ?? []);
+      const citationEvidence = await ensureCitationEvidence(database, project, completion?.response.citations ?? []);
       const markdown = renderReportMarkdown(report);
       await database.query(
         `update report_versions
          set status = 'ready', structured_document = $2::jsonb, rendered_markdown = $3,
              change_summary = $4::jsonb, completed_at = now()
          where id = $1`,
-        [version.id, JSON.stringify(report), markdown, JSON.stringify({ provider: completion.provider.name, model: completion.response.model, xSearchCitations: citationEvidence.length })]
+        [version.id, JSON.stringify(report), markdown, JSON.stringify(completion ? { provider: completion.provider.name, model: completion.response.model, xSearchCitations: citationEvidence.length } : { source: 'evidence_fallback', error: fallbackError, xSearchCitations: 0 })]
       );
       await new OutboxStore(database).append({
         type: 'report.ready', aggregateType: 'project', aggregateId: projectId, version: version.version,
