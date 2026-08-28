@@ -156,6 +156,16 @@ export function createDecodeAlphaEventHandler(database: JobDatabase) {
       if (row && row.highest_star >= 3) {
         await database.query(`update projects set status = 'trench', updated_at = now() where id = $1 and status not in ('excluded', 'dormant')`, [projectId]);
         await ensureTrenchMonitoring(database, projectId, row.x_user_id);
+        // A project may have been screened while it was low-star and never
+        // received a research job (for example after a worker restart). The
+        // first high-star event is a safe idempotent opportunity to schedule
+        // the V2 report; JobStore prevents duplicate jobs on later events.
+        await new JobStore(database).enqueue({
+          type: 'research_project',
+          idempotencyKey: `research:${projectId}`,
+          payload: { projectId },
+          priority: 30
+        });
       }
     }
     await database.query('update raw_events set decode_status = $2 where id = $1', [payload.rawEventId, 'decoded']);

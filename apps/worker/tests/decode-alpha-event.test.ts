@@ -56,4 +56,24 @@ describe('decode-alpha-event realtime notifications', () => {
     expect(state.rows[0]).toMatchObject({ status: 'excluded', exclusion_reason: 'AI 初筛自动拦截：个人账号' });
     expect(rawState.rows[0]?.decode_status).toBe('decoded');
   });
+
+  it('promotes an allowed project to trench and schedules its report at three stars', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, status, highest_star, highest_common_follow_count) values ('promote-user', 'promote_project', 'active', 2, 8) returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'promote-raw', '{}'::jsonb, 'pending') returning id`);
+    await createDecodeAlphaEventHandler(database)({
+      id: 'job-promote', type: 'decode_alpha_event', priority: 1, status: 'running', idempotencyKey: 'decode:promote',
+      payload: { rawEventId: raw.rows[0].id, event: {
+        type: 'common_follow', externalId: 'promote-event', xUserId: 'promote-user', handle: 'promote_project', commonFollowCount: 12,
+        occurredAt: new Date('2026-08-27T03:00:00Z'), payload: { follow_user: { id_str: 'promote-user', screen_name: 'promote_project' } }
+      } }
+    });
+    const state = await database.query<{ status: string; highest_star: number }>('select status, highest_star from projects where id = $1', [project.rows[0].id]);
+    const monitor = await database.query<{ desired_state: string }>('select desired_state from alpha_monitors where project_id = $1', [project.rows[0].id]);
+    const research = await database.query<{ type: string; status: string }>(`select type, status from jobs where idempotency_key = $1`, [`research:${project.rows[0].id}`]);
+    expect(state.rows[0]).toMatchObject({ status: 'trench', highest_star: 3 });
+    expect(monitor.rows[0]?.desired_state).toBe('enabled');
+    expect(research.rows[0]).toMatchObject({ type: 'research_project', status: 'queued' });
+  });
 });
