@@ -10,7 +10,7 @@ import {
 import { OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
 
 interface ResearchProjectPayload { projectId: string; }
-interface ProjectRow { id: string; current_handle: string; display_name: string; status: string; profile_summary?: string; }
+interface ProjectRow { id: string; current_handle: string; display_name: string; status: string; profile_summary?: string; evidence_summary?: string; }
 interface SignalRow { id: string; type: string; occurred_at: string; common_follow_count: number | null; x_post_url: string | null; content: string | null; data: unknown; }
 interface EvidenceRow { id: string; signal_id: string | null; url: string; excerpt: string; content_hash: string; }
 interface ReportVersionRow { id: string; version: number; status: string; }
@@ -91,8 +91,9 @@ function normalizeReport(raw: Record<string, unknown>, fallbackProject?: Project
     : summaryValue;
   const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sectionValue(item, '优点')).filter((item) => item && detailedNarrative(item));
   const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sectionValue(item, '缺点')).filter((item) => item && detailedNarrative(item));
-  const normalizedStrengths = rawStrengths.length ? rawStrengths : [fallbackProject?.profile_summary ? `公开简介已明确提出${fallbackProject.profile_summary}，说明账号至少形成了清晰的产品叙事和目标用户方向；若近期帖子能证明真实交付或用户参与，该定位具备早期传播与试错价值，并可继续观察其社区扩散效率。` : '当前仅能确认账号围绕一个明确主题或产品方向展开；若后续出现可验证交付、用户反馈和持续更新，该方向可能形成早期差异化，值得保持低成本跟踪。'];
-  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : [fallbackProject?.profile_summary ? `公开资料目前主要停留在简介层面（${fallbackProject.profile_summary}），缺少产品演示、链上数据和持续更新证据，落地能力与用户留存仍无法确认；需要核对近期帖子、产品链接和实际使用记录。` : '公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证；在缺少连续交付、用户使用和链上活动记录前，项目持续性、流动性和叙事兑现能力都不能确认。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
+  const evidenceHint = fallbackProject?.evidence_summary ? `当前信号事实：${fallbackProject.evidence_summary.slice(0, 520)}。` : '';
+  const normalizedStrengths = rawStrengths.length ? rawStrengths : [fallbackProject?.profile_summary ? `公开简介已明确提出${fallbackProject.profile_summary}，结合${evidenceHint || '现有 Alpha 信号'}可确认账号形成了清晰的产品叙事和目标用户方向；若近期帖子能证明真实交付或用户参与，该定位具备早期传播与试错价值，并可继续观察其帖子热度、用户增长和社区扩散效率。` : `当前仅能确认账号围绕一个明确主题或产品方向展开；${evidenceHint}若后续出现可验证交付、用户反馈和持续更新，该方向可能形成早期差异化，值得保持低成本跟踪。`];
+  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : [fallbackProject?.profile_summary ? `公开资料目前主要停留在简介层面（${fallbackProject.profile_summary}），${evidenceHint || '近期帖子和账号指标仍有限'}缺少产品演示、链上数据和持续更新证据，落地能力与用户留存仍无法确认；需要核对近期帖子、产品链接、帖子热度和实际使用记录。` : `公开资料、推文细节或用户数据仍有限，${evidenceHint}部分判断需要后续公开证据验证；在缺少连续交付、用户使用和链上活动记录前，项目持续性、流动性和叙事兑现能力都不能确认。`];
   const progressValue = sectionValue(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']), '当前进展', focusNarrative || text(first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
   const currentProgress = sanitizeCurrentProgress(isTemplateEcho(progressValue) ? '近期帖子不可公开读取，暂无法从公开正文确认账号活跃度与项目进展；待下一条公开帖子验证。' : progressValue);
   const reasonValue = sectionValue(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, '关注理由', currentProgress);
@@ -192,7 +193,7 @@ const PLACEHOLDER_TEXT = new Set([
 ]);
 
 /** Prevent a syntactically valid but empty model response being marked ready. */
-function assertReportComplete(report: ReportDocument): void {
+function assertReportComplete(report: ReportDocument, evidenceSummary = ''): void {
   const failures: string[] = [];
   const meaningful = (value: string): boolean => Boolean(value.trim()) && !PLACEHOLDER_TEXT.has(value.trim()) && !isTemplateEcho(value);
   if (!meaningful(report.coreInfo.summary)) failures.push('coreInfo.summary');
@@ -200,6 +201,12 @@ function assertReportComplete(report: ReportDocument): void {
   if (!meaningful(report.focusReason.reason)) failures.push('focusReason.reason');
   if (!report.focusReason.strengths.some(meaningful)) failures.push('focusReason.strengths');
   if (!report.focusReason.weaknesses.some(meaningful)) failures.push('focusReason.weaknesses');
+  const richEvidence = /(?:指标：|账号资料：|用户简介：|浏览\s*\d|点赞\s*\d|粉丝\s*\d|产品|测试网|主网|链上|交付)/u.test(evidenceSummary);
+  if (richEvidence) {
+    const coverage = `${report.focusReason.strengths.join(' ')} ${report.focusReason.weaknesses.join(' ')}`;
+    const markers = new Set(coverage.match(/(?:帖子|浏览|点赞|转发|回复|粉丝|热度|活跃|讨论|增长|交付|链上|用户)/gu) ?? []);
+    if (markers.size < 2) failures.push('focusReason.evidence_coverage');
+  }
   if (failures.length) throw new Error(`research output incomplete: ${failures.join(', ')}`);
 }
 
@@ -374,7 +381,7 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
        from signals where project_id = $1 order by occurred_at desc limit 12`,
       [projectId]
     )).rows;
-    const enrichedProject: ProjectRow = { ...project, profile_summary: profileSummary(signals) };
+    const enrichedProject: ProjectRow = { ...project, profile_summary: profileSummary(signals), evidence_summary: signals.map(signalExcerpt).join('；').slice(0, 1800) };
     const evidence = await ensureEvidence(database, project, signals);
     const version = await ensureReportVersion(database, projectId, signals[0]?.id ?? null);
     await database.query(`update report_versions set status = 'collecting' where id = $1`, [version.id]);
@@ -392,7 +399,7 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
         completion = await router.complete({ purpose: 'research', system: prompt.system, user: prompt.user, schema: 'ReportDocumentSchema' });
         try {
           report = parseReport(completion.response.text, enrichedProject);
-          assertReportComplete(report);
+          assertReportComplete(report, enrichedProject.evidence_summary);
         } catch (firstError) {
           // A few relays return a valid JSON skeleton after tool use. Ask once
           // more with an explicit completeness constraint before using evidence fallback.
@@ -403,12 +410,12 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
             schema: 'ReportDocumentSchema'
           });
           report = parseReport(completion.response.text, enrichedProject);
-          assertReportComplete(report);
+          assertReportComplete(report, enrichedProject.evidence_summary);
         }
       } catch (error) {
         fallbackError = error instanceof Error ? error.message : String(error);
         report = buildEvidenceFallbackReport(enrichedProject, signals);
-        assertReportComplete(report);
+        assertReportComplete(report, enrichedProject.evidence_summary);
       }
       const citationEvidence = await ensureCitationEvidence(database, project, completion?.response.citations ?? []);
       const markdown = renderReportMarkdown(report);
