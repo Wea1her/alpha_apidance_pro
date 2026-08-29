@@ -37,6 +37,10 @@ function isTemplateEcho(value: unknown): boolean {
   const evidencePlaceholders = (result.match(/暂无公开证据/gu) ?? []).length;
   return /\{[^{}]+\}/u.test(result) || evidencePlaceholders >= 2 || /(?:核心定位\/叙事|产品机制与用户参与方式|收入或激励机制|具体交付与增长指标)/u.test(result);
 }
+function detailedNarrative(value: string, minimum = 55): boolean {
+  const normalized = value.trim();
+  return normalized.length >= minimum && !isTemplateEcho(normalized) && !/^(?:暂无|未知|待确认|有待)/u.test(normalized);
+}
 function first(value: unknown, keys: readonly string[]): unknown {
   const object = record(value);
   for (const key of keys) if (object[key] !== undefined && object[key] !== null) return object[key];
@@ -85,10 +89,10 @@ function normalizeReport(raw: Record<string, unknown>, fallbackProject?: Project
   const summary = isTemplateEcho(summaryValue)
     ? (fallbackProject?.profile_summary ? `公开简介显示${fallbackProject.profile_summary}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。')
     : summaryValue;
-  const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sectionValue(item, '优点')).filter((item) => item && !isTemplateEcho(item) && !/暂无(?:明确)?优势|暂无正向证据/u.test(item));
-  const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sectionValue(item, '缺点')).filter((item) => item && !isTemplateEcho(item) && !/暂无(?:明确)?缺点|暂无负向证据/u.test(item));
-  const normalizedStrengths = rawStrengths.length ? rawStrengths : [fallbackProject?.profile_summary ? `公开简介已明确提出${fallbackProject.profile_summary}，说明账号至少形成了清晰的产品叙事和目标用户方向；若近期帖子能证明真实交付或用户参与，该定位具备早期传播与试错价值。` : '当前仅能确认账号围绕一个明确主题或产品方向展开；若后续出现可验证交付与用户反馈，可能形成早期差异化。'];
-  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : [fallbackProject?.profile_summary ? `公开资料目前主要停留在简介层面（${fallbackProject.profile_summary}），缺少产品演示、链上数据和持续更新证据，落地能力与用户留存仍无法确认；需要核对近期帖子、产品链接和实际使用记录。` : '公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
+  const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sectionValue(item, '优点')).filter((item) => item && detailedNarrative(item));
+  const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sectionValue(item, '缺点')).filter((item) => item && detailedNarrative(item));
+  const normalizedStrengths = rawStrengths.length ? rawStrengths : [fallbackProject?.profile_summary ? `公开简介已明确提出${fallbackProject.profile_summary}，说明账号至少形成了清晰的产品叙事和目标用户方向；若近期帖子能证明真实交付或用户参与，该定位具备早期传播与试错价值，并可继续观察其社区扩散效率。` : '当前仅能确认账号围绕一个明确主题或产品方向展开；若后续出现可验证交付、用户反馈和持续更新，该方向可能形成早期差异化，值得保持低成本跟踪。'];
+  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : [fallbackProject?.profile_summary ? `公开资料目前主要停留在简介层面（${fallbackProject.profile_summary}），缺少产品演示、链上数据和持续更新证据，落地能力与用户留存仍无法确认；需要核对近期帖子、产品链接和实际使用记录。` : '公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证；在缺少连续交付、用户使用和链上活动记录前，项目持续性、流动性和叙事兑现能力都不能确认。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'];
   const progressValue = sectionValue(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']), '当前进展', focusNarrative || text(first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
   const currentProgress = sanitizeCurrentProgress(isTemplateEcho(progressValue) ? '近期帖子不可公开读取，暂无法从公开正文确认账号活跃度与项目进展；待下一条公开帖子验证。' : progressValue);
   const reasonValue = sectionValue(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, '关注理由', currentProgress);
