@@ -79,31 +79,61 @@ function sanitizeCurrentProgress(value: string): string {
     .trim();
   return cleaned || '最近帖子分析：当前未获取到可公开读取的近期帖子正文，可能是锁定、删除或搜索结果受限；待下一条公开帖子验证。';
 }
+/** Remove Alpha transport metadata before narrative fields are persisted. */
+function sanitizeNarrative(value: string): string {
+  let cleaned = stripSectionPrefix(value)
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/giu, '')
+    .replace(/(?:账号资料|当前信号事实|用户简介|指标|时间)\s*[:：][^。]*(?:。|$)/gu, '')
+    .replace(/(?:共同关注(?:人数|峰值)?|共同关注)\s*\d+\s*人?[。；;]?/gu, '')
+    .replace(/你关注的\s*\d+\s*个用户也关注了ta[。；;]?/giu, '')
+    .replace(/(?:绑定|关联)?\s*(?:evidence|证据)(?:\s*(?:ID|编号))?\s*[:：]?\s*[0-9a-f-]{8,}/giu, '')
+    .replace(/\s*[；;，,]\s*/gu, '；')
+    .replace(/(?:^；+|；+$)/gu, '')
+    .replace(/；{2,}/gu, '；')
+    .replace(/\s{2,}/gu, ' ')
+    .trim();
+  return cleaned;
+}
+
+function sanitizeTag(value: string): string {
+  return value.replace(/`/gu, '').replace(/[\r\n]+/gu, ' ').replace(/\s{2,}/gu, ' ').trim();
+}
+
+function profileFacts(profile: string): { description: string; followers?: number; posts?: number } {
+  const description = profile.match(/简介：(.+?)(?=；粉丝|；发帖|。|$)/u)?.[1]?.trim() ?? '';
+  const followerRaw = profile.match(/粉丝\s*(\d+)/u)?.[1];
+  const postsRaw = profile.match(/发帖\s*(\d+)/u)?.[1];
+  return { description, followers: followerRaw ? Number(followerRaw) : undefined, posts: postsRaw ? Number(postsRaw) : undefined };
+}
 function normalizeReport(raw: Record<string, unknown>, fallbackProject?: ProjectRow) {
   const projectValue = first(raw, ['project', 'coreInfo', 'project_info', '项目核心信息', '核心信息']);
   const project = typeof projectValue === 'string' ? {} : record(projectValue);
   const focus = record(first(raw, ['focusReason', 'key_focus', 'focus_reason', 'focus', '关注理由', '重点关注理由']));
   const focusNarrative = typeof first(raw, ['focusReason', 'focus']) === 'string' ? stripSectionPrefix(text(first(raw, ['focusReason', 'focus']))) : '';
+  const profile = fallbackProject?.profile_summary ? profileFacts(fallbackProject.profile_summary) : undefined;
+  const profileDescription = profile?.description || fallbackProject?.profile_summary?.replace(/^账号资料：/u, '').trim();
   const summaryCandidate = first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']);
-  const summaryValue = sectionValue(summaryCandidate, '项目核心信息', fallbackProject?.profile_summary ? `公开简介显示${fallbackProject.profile_summary}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式。');
+  const summaryValue = sectionValue(summaryCandidate, '项目核心信息', fallbackProject?.profile_summary ? `公开简介显示${profileDescription || '明确产品主题'}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式。');
   const summary = isTemplateEcho(summaryValue)
-    ? (fallbackProject?.profile_summary ? `公开简介显示${fallbackProject.profile_summary}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。')
+    ? (fallbackProject?.profile_summary ? `公开简介显示${profileDescription || '明确产品主题'}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。')
     : summaryValue;
-  const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sectionValue(item, '优点')).filter((item) => item && detailedNarrative(item));
-  const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sectionValue(item, '缺点')).filter((item) => item && detailedNarrative(item));
-  const evidenceHint = fallbackProject?.evidence_summary ? `当前信号事实：${fallbackProject.evidence_summary.slice(0, 520)}。` : '';
-  const normalizedStrengths = rawStrengths.length ? rawStrengths : [fallbackProject?.profile_summary ? `公开简介已明确提出${fallbackProject.profile_summary}，结合${evidenceHint || '现有 Alpha 信号'}可确认账号形成了清晰的产品叙事和目标用户方向；若近期帖子能证明真实交付或用户参与，该定位具备早期传播与试错价值，并可继续观察其帖子热度、用户增长和社区扩散效率。` : `当前仅能确认账号围绕一个明确主题或产品方向展开；${evidenceHint}若后续出现可验证交付、用户反馈和持续更新，该方向可能形成早期差异化，值得保持低成本跟踪。`];
-  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : [fallbackProject?.profile_summary ? `公开资料目前主要停留在简介层面（${fallbackProject.profile_summary}），${evidenceHint || '近期帖子和账号指标仍有限'}缺少产品演示、链上数据和持续更新证据，落地能力与用户留存仍无法确认；需要核对近期帖子、产品链接、帖子热度和实际使用记录。` : `公开资料、推文细节或用户数据仍有限，${evidenceHint}部分判断需要后续公开证据验证；在缺少连续交付、用户使用和链上活动记录前，项目持续性、流动性和叙事兑现能力都不能确认。`];
+  const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sanitizeNarrative(sectionValue(item, '优点'))).filter((item) => item && detailedNarrative(item));
+  const rawWeaknesses = strings(first(focus, ['weaknesses', 'risks', '缺点', '不足'])).map((item) => sanitizeNarrative(sectionValue(item, '缺点'))).filter((item) => item && detailedNarrative(item));
+  const accountMetrics = profile && (profile.followers !== undefined || profile.posts !== undefined)
+    ? `账号当前约${profile.followers ?? '未知'}名粉丝、累计${profile.posts ?? '未知'}条发帖，内容规模与活跃度仍需连续样本验证`
+    : '账号粉丝与发帖基数暂无公开证据，活跃度仍需连续样本验证';
+  const normalizedStrengths = rawStrengths.length ? rawStrengths : [fallbackProject?.profile_summary ? `公开资料显示该账号围绕${profileDescription || '明确产品主题'}构建叙事，${accountMetrics}；如果后续公开帖子能证明产品演示、用户参与或链上交付，该方向才可能形成早期传播与短期投机窗口，当前应以低成本跟踪和小额验证为主。` : `当前仅能确认账号围绕一个明确主题或产品方向展开；若后续出现可验证交付、用户反馈和持续更新，该方向可能形成早期差异化，值得保持低成本跟踪。`];
+  const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : [fallbackProject?.profile_summary ? `现有证据主要来自账号定位资料，${accountMetrics}，且近期公开帖子正文、产品演示、链上数据和真实用户反馈不足；这会直接限制对交付能力、留存和流动性的判断，若后续仍无持续更新或可验证使用记录，叙事落空与流动性不足风险会放大，需核对产品链接、连续发帖热度和链上活动。` : `公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证；在缺少连续交付、用户使用和链上活动记录前，项目持续性、流动性和叙事兑现能力都不能确认。`];
   const progressValue = sectionValue(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']), '当前进展', focusNarrative || text(first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
   const currentProgress = sanitizeCurrentProgress(isTemplateEcho(progressValue) ? '近期帖子不可公开读取，暂无法从公开正文确认账号活跃度与项目进展；待下一条公开帖子验证。' : progressValue);
   const reasonValue = sectionValue(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, '关注理由', currentProgress);
   const normalizedReason = isTemplateEcho(reasonValue)
     ? (fallbackProject?.profile_summary
-      ? `持续观察。账号简介显示${fallbackProject.profile_summary}，具备明确的产品叙事线索；但近期公开帖子、真实用户使用和链上交付仍缺少可核验样本，暂不具备高确定性判断。建议优先跟踪下一条公开帖子、产品链接和用户增长变化，严格小仓参与而非重仓。`
+      ? `持续观察。公开资料显示该账号围绕${profileDescription || '明确产品主题'}展开，具备清晰的产品叙事线索；但近期公开帖子、真实用户使用和链上交付仍缺少可核验样本，暂不具备高确定性判断。建议优先跟踪下一条公开帖子、产品链接和用户增长变化，严格小仓参与而非重仓。`
       : '持续观察。当前公开资料和有效信号不足，暂不具备高确定性判断；建议继续跟踪近期帖子、产品交付和用户增长，在出现可验证进展前不扩大仓位。')
-    : reasonValue;
+    : sanitizeNarrative(reasonValue);
   const stage = substantive(first(raw, ['stage', 'status', 'phase', '阶段', '当前阶段']) ?? first(project, ['stage', 'status', 'phase', '阶段', '当前阶段']), '早期公开构建阶段（基于当前可见信号）');
-  const normalizedTags = strings(first(raw, ['tags', '标签'])).map(stripSectionPrefix).flatMap((item) => item.split(/[、,，]/u).map((tag) => tag.trim()).filter(Boolean));
+  const normalizedTags = strings(first(raw, ['tags', '标签'])).map(stripSectionPrefix).flatMap((item) => item.split(/[、,，]/u).map((tag) => sanitizeTag(tag)).filter(Boolean));
   const modelProjectName = text(first(project, ['projectName', 'name', 'project', '项目名称', '项目']) ?? (typeof raw.project === 'string' ? raw.project : undefined) ?? first(raw, ['project_name', '项目名称']));
   const projectName = fallbackProject?.display_name?.trim() || modelProjectName || '未命名项目';
   const modelHandle = text(first(project, ['handle', 'xHandle', 'xAccount', 'account', '账号', 'X账号', 'X 账号']) ?? first(raw, ['handle', 'xHandle', 'xAccount', 'account', '账号']));
@@ -193,7 +223,7 @@ const PLACEHOLDER_TEXT = new Set([
 ]);
 
 /** Prevent a syntactically valid but empty model response being marked ready. */
-function assertReportComplete(report: ReportDocument, evidenceSummary = ''): void {
+function assertReportComplete(report: ReportDocument, evidenceSummary = '', profileSummary = ''): void {
   const failures: string[] = [];
   const meaningful = (value: string): boolean => Boolean(value.trim()) && !PLACEHOLDER_TEXT.has(value.trim()) && !isTemplateEcho(value);
   if (!meaningful(report.coreInfo.summary)) failures.push('coreInfo.summary');
@@ -206,6 +236,18 @@ function assertReportComplete(report: ReportDocument, evidenceSummary = ''): voi
     const coverage = `${report.focusReason.strengths.join(' ')} ${report.focusReason.weaknesses.join(' ')}`;
     const markers = new Set(coverage.match(/(?:帖子|浏览|点赞|转发|回复|粉丝|热度|活跃|讨论|增长|交付|链上|用户)/gu) ?? []);
     if (markers.size < 2) failures.push('focusReason.evidence_coverage');
+  }
+  // When a profile is available, both sides must go beyond copying its bio:
+  // strengths need a project fact plus an observable activity/traction fact,
+  // while weaknesses need a concrete evidence or delivery gap.
+  if (profileSummary) {
+    const strengths = report.focusReason.strengths.join(' ');
+    const weaknesses = report.focusReason.weaknesses.join(' ');
+    const projectFact = /(?:NFT|PFP|社交网络|社区|治理|Launchpad|发射台|meme|链|平台|协议|应用|产品)/iu.test(strengths);
+    const tractionFact = /(?:帖子|发帖|浏览|点赞|转发|回复|粉丝|活跃|讨论|增长|用户|交付|链上|测试网|主网|热度)/u.test(strengths);
+    const weaknessFact = /(?:缺少|不足|无法确认|不可公开读取|数据缺口|产品演示|链上|交付|用户|活跃|帖子|粉丝|竞争|审计|团队|留存|流动性|验证)/u.test(weaknesses);
+    if (!projectFact || !tractionFact) failures.push('focusReason.strengths.comprehensive_evidence');
+    if (!weaknessFact) failures.push('focusReason.weaknesses.comprehensive_evidence');
   }
   if (failures.length) throw new Error(`research output incomplete: ${failures.join(', ')}`);
 }
@@ -399,7 +441,7 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
         completion = await router.complete({ purpose: 'research', system: prompt.system, user: prompt.user, schema: 'ReportDocumentSchema' });
         try {
           report = parseReport(completion.response.text, enrichedProject);
-          assertReportComplete(report, enrichedProject.evidence_summary);
+          assertReportComplete(report, enrichedProject.evidence_summary, enrichedProject.profile_summary);
         } catch (firstError) {
           // A few relays return a valid JSON skeleton after tool use. Ask once
           // more with an explicit completeness constraint before using evidence fallback.
@@ -410,12 +452,12 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
             schema: 'ReportDocumentSchema'
           });
           report = parseReport(completion.response.text, enrichedProject);
-          assertReportComplete(report, enrichedProject.evidence_summary);
+          assertReportComplete(report, enrichedProject.evidence_summary, enrichedProject.profile_summary);
         }
       } catch (error) {
         fallbackError = error instanceof Error ? error.message : String(error);
         report = buildEvidenceFallbackReport(enrichedProject, signals);
-        assertReportComplete(report, enrichedProject.evidence_summary);
+        assertReportComplete(report, enrichedProject.evidence_summary, enrichedProject.profile_summary);
       }
       const citationEvidence = await ensureCitationEvidence(database, project, completion?.response.citations ?? []);
       const markdown = renderReportMarkdown(report);

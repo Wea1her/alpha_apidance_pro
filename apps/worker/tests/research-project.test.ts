@@ -217,4 +217,31 @@ describe('research-project handler', () => {
     expect(retryPrompt).not.toContain('内部六赛道、评分和复核字段可基于已有证据归一化');
     expect(result.rows[0]?.rendered_markdown).not.toContain('核心论点');
   });
+
+  it('removes raw Alpha metadata from strengths and weaknesses and rejects bio-only analysis', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('yap-user', 'YAPdotNFT', 'YapNFT') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'yap-raw', '{}'::jsonb, 'decoded') returning id`);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, common_follow_count, content, data) values ($1, $2, 'yap-user', 'common_follow', now(), 1, '你关注的 1 个用户也关注了ta', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify(JSON.stringify({ follow_user: { screen_name: 'YAPdotNFT', description: 'the social network that lives on your desktop. 1000 pfps, gated rooms. $YAP on Robinhood chain.', followers_count: 7, statuses_count: 3 }, user: { followers_count: 4902 } }))]);
+    const bioOnlyAdapter: AiProviderAdapter = { ...adapter({ count: 0 }), complete: async () => ({
+      text: JSON.stringify({
+        coreInfo: { projectName: 'YapNFT', handle: '@YAPdotNFT', summary: 'YapNFT (@YAPdotNFT) 定位为桌面社交网络，通过1000个PFP和 gated rooms 服务社区用户；项目覆盖 Robinhood Chain，具体交付暂无公开证据。', stage: '早期公开构建阶段' },
+        focusReason: {
+          currentProgress: '近期帖子不可公开读取/暂无公开正文。',
+          strengths: ['账号资料：账号 @YAPdotNFT；简介：the social network that lives on your desktop. 1000 pfps, gated rooms. $YAP on Robinhood chain.；粉丝 7；发帖 3。共同关注 1 人。指标：粉丝 4902。'],
+          weaknesses: ['团队、审计、产品、数据或竞争方面的缺口暂无公开证据导致对落地、留存或流动性的影响；若叙事不成立，风险会放大。'],
+          reason: '值得小仓试错。该账号获得实际监控信号，叠加早期窗口，存在NFT mint机会。'
+        },
+        tags: ['``社交网络``', '`NFT`']
+      }),
+      model: 'research'
+    }) };
+    await createResearchProjectHandler(database, new AiProviderRouter([bioOnlyAdapter]))({ id: 'job-yap', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:yap-user', payload: { projectId: project.rows[0].id } });
+    const result = await database.query<{ rendered_markdown: string; structured_document: { focusReason: { strengths: string[]; weaknesses: string[] }; tags: string[] } }>('select rendered_markdown, structured_document from report_versions');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('账号资料：');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('共同关注 1 人');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('粉丝 4902');
+    expect(result.rows[0]?.structured_document.tags).toEqual(['社交网络', 'NFT']);
+  });
 });
