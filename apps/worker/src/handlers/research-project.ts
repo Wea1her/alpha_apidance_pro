@@ -125,7 +125,10 @@ function normalizeReport(raw: Record<string, unknown>, fallbackProject?: Project
   const normalizedStrengths = rawStrengths.length ? rawStrengths : [fallbackProject?.profile_summary ? `公开资料显示该账号围绕${profileDescription || '明确产品主题'}构建叙事，${accountMetrics}；如果后续公开帖子能证明产品演示、用户参与或链上交付，该方向才可能形成早期传播与短期投机窗口，当前应以低成本跟踪和小额验证为主。` : `当前仅能确认账号围绕一个明确主题或产品方向展开；若后续出现可验证交付、用户反馈和持续更新，该方向可能形成早期差异化，值得保持低成本跟踪。`];
   const normalizedWeaknesses = rawWeaknesses.length ? rawWeaknesses : [fallbackProject?.profile_summary ? `现有证据主要来自账号定位资料，${accountMetrics}，且近期公开帖子正文、产品演示、链上数据和真实用户反馈不足；这会直接限制对交付能力、留存和流动性的判断，若后续仍无持续更新或可验证使用记录，叙事落空与流动性不足风险会放大，需核对产品链接、连续发帖热度和链上活动。` : `公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证；在缺少连续交付、用户使用和链上活动记录前，项目持续性、流动性和叙事兑现能力都不能确认。`];
   const progressValue = sectionValue(first(focus, ['currentProgress', 'current_progress', '当前进展', '进展']), '当前进展', focusNarrative || text(first(raw, ['monitor', '当前进展']), '当前进展依据有限，需继续跟踪公开交付。'));
-  const currentProgress = sanitizeCurrentProgress(isTemplateEcho(progressValue) ? '近期帖子不可公开读取，暂无法从公开正文确认账号活跃度与项目进展；待下一条公开帖子验证。' : progressValue);
+  const progressBase = sanitizeCurrentProgress(isTemplateEcho(progressValue) ? '近期帖子不可公开读取，暂无法从公开正文确认账号活跃度与项目进展；待下一条公开帖子验证。' : progressValue);
+  const currentProgress = /近期帖子不可公开读取|暂无公开正文/u.test(progressBase) && profile
+    ? `${progressBase}账号当前约${profile.followers ?? '未知'}名粉丝、累计${profile.posts ?? '未知'}条发帖，暂无法据此计算稳定发帖频率、帖子热度、讨论度或粉丝增长速度。`
+    : progressBase;
   const reasonValue = sectionValue(first(focus, ['reason', '综合判断', '判断', '理由']) ?? first(raw, ['conclusion', '综合判断']) ?? focusNarrative, '关注理由', currentProgress);
   const normalizedReason = isTemplateEcho(reasonValue)
     ? (fallbackProject?.profile_summary
