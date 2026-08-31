@@ -87,9 +87,29 @@ describe('decode-alpha-event realtime notifications', () => {
     });
     const state = await database.query<{ status: string; highest_star: number }>('select status, highest_star from projects where id = $1', [project.rows[0].id]);
     const monitor = await database.query<{ desired_state: string }>('select desired_state from alpha_monitors where project_id = $1', [project.rows[0].id]);
-    const research = await database.query<{ type: string; status: string }>(`select type, status from jobs where idempotency_key = $1`, [`research:${project.rows[0].id}`]);
+    const signal = await database.query<{ id: string }>(`select id from signals where project_id = $1 order by occurred_at desc limit 1`, [project.rows[0].id]);
+    const research = await database.query<{ type: string; status: string }>(`select type, status from jobs where idempotency_key = $1`, [`research:${project.rows[0].id}:signal:${signal.rows[0]?.id}`]);
     expect(state.rows[0]).toMatchObject({ status: 'trench', highest_star: 3 });
     expect(monitor.rows[0]?.desired_state).toBe('enabled');
     expect(research.rows[0]).toMatchObject({ type: 'research_project', status: 'queued' });
+  });
+
+  it('schedules a fresh report for every new signal on an allowed low-star project', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, status, highest_star, highest_common_follow_count) values ('refresh-user', 'NuvemFund', 'active', 1, 1) returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    await database.query(`insert into jobs (type, status, idempotency_key, payload) values ('research_project', 'succeeded', $1, $2::jsonb)`, [`research:${project.rows[0].id}`, JSON.stringify({ projectId: project.rows[0].id })]);
+    const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'refresh-raw', '{}'::jsonb, 'pending') returning id`);
+    await createDecodeAlphaEventHandler(database)({
+      id: 'job-refresh', type: 'decode_alpha_event', priority: 1, status: 'running', idempotencyKey: 'decode:refresh',
+      payload: { rawEventId: raw.rows[0].id, event: {
+        type: 'common_follow', externalId: 'refresh-event', xUserId: 'refresh-user', handle: 'NuvemFund', commonFollowCount: 2,
+        occurredAt: new Date('2026-08-31T03:00:00Z'), payload: { follow_user: { id_str: 'refresh-user', screen_name: 'NuvemFund' } }
+      } }
+    });
+    const signals = await database.query<{ id: string }>(`select id from signals where project_id = $1 order by occurred_at desc`, [project.rows[0].id]);
+    const jobs = await database.query<{ idempotency_key: string; status: string }>(`select idempotency_key, status from jobs where type = 'research_project' order by created_at`);
+    expect(jobs.rows).toHaveLength(2);
+    expect(jobs.rows[1]).toMatchObject({ idempotency_key: `research:${project.rows[0].id}:signal:${signals.rows[0]?.id}`, status: 'queued' });
   });
 });

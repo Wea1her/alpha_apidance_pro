@@ -41,7 +41,7 @@ export function createScreenAccountHandler(database: JobDatabase, screening: Acc
         await database.query(`update projects set excluded_at = null, exclusion_reason = null where id = $1`, [payload.projectId]);
       }
       if (trench && row) await ensureTrenchMonitoring(database, payload.projectId, row.x_user_id);
-      await new JobStore(database).enqueue({ type: 'research_project', idempotencyKey: `research:${payload.projectId}`, payload: { projectId: payload.projectId }, priority: 30 });
+      await new JobStore(database).enqueue({ type: 'research_project', idempotencyKey: `research:${payload.projectId}:screening:${decisionId ?? job.id}`, payload: { projectId: payload.projectId }, priority: 30 });
     } else if (result.decision === 'blocked') {
       await database.query(
         `update projects set status = 'excluded', excluded_at = now(), exclusion_reason = $2, updated_at = now() where id = $1`,
