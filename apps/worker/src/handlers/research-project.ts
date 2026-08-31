@@ -293,7 +293,14 @@ function buildEvidenceFallbackReport(project: ProjectRow, signals: SignalRow[]):
 function signalExcerpt(signal: SignalRow): string {
   const count = signal.common_follow_count == null ? '' : `共同关注 ${signal.common_follow_count} 人。`;
   const data = record(signal.data);
-  const candidates = [data, record(data.tweet), record(data.status), record(data.post), record(data.metrics), record(data.user), record(data.author)];
+  const targetUser = record(data.follow_user);
+  const contentCandidates = [data, record(data.tweet), record(data.status), record(data.post), record(data.metrics)];
+  // In Alpha new_follower/common-follow payloads `user` is the caller who
+  // followed the project, while `follow_user` is the target project itself.
+  // Never present caller followers as project metrics.
+  const candidates = signal.type === 'common_follow'
+    ? [...contentCandidates, targetUser]
+    : [...contentCandidates, targetUser, record(data.user), record(data.author)];
   const labels: Array<[string, string[]]> = [
     ['浏览', ['views', 'view_count', 'impression_count', 'impressions']],
     ['点赞', ['likes', 'like_count', 'favorite_count', 'favorites']],

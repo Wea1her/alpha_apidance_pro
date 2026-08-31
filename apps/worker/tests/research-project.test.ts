@@ -87,13 +87,14 @@ describe('research-project handler', () => {
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('profile-user', 'UrVote_', 'UrVote') returning id`);
     await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
     const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'profile-raw', '{}'::jsonb, 'decoded') returning id`);
-    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'profile-user', 'common_follow', now(), '用户简介：The governance layer for communities.', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify(JSON.stringify({ follow_user: { screen_name: 'UrVote_', description: 'The governance layer for communities. Vote, verify, and watch in real time.', followers_count: 455, statuses_count: 326 } }))]);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'profile-user', 'common_follow', now(), '用户简介：The governance layer for communities.', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify(JSON.stringify({ user: { screen_name: 'trigger-caller', followers_count: 4902 }, follow_user: { screen_name: 'UrVote_', description: 'The governance layer for communities. Vote, verify, and watch in real time.', followers_count: 455, statuses_count: 326 } }))]);
     let promptUser = '';
     const base = adapter({ count: 0 });
     const captureAdapter: AiProviderAdapter = { ...base, complete: async (request) => { promptUser = request.user; return base.complete(request); } };
     await createResearchProjectHandler(database, new AiProviderRouter([captureAdapter]))({ id: 'job-profile', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:profile-user', payload: { projectId: project.rows[0].id } });
     expect(promptUser).toContain('governance layer');
     expect(promptUser).toContain('粉丝 455');
+    expect(promptUser).not.toContain('粉丝 4902');
   });
 
   it('uses profile evidence instead of generic placeholders when the model omits the summary', async () => {
