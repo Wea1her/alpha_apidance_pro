@@ -115,7 +115,7 @@ describe('research-project handler', () => {
     const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('fallback-ai', 'fallback.fun', 'Fallback') returning id`);
     await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
     const raw = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'fallback-ai-raw', '{}'::jsonb, 'decoded') returning id`);
-    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'fallback-ai', 'common_follow', now(), '用户简介：A community launchpad on Base.', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify(JSON.stringify({ follow_user: { screen_name: 'fallback.fun', description: 'A community launchpad on Base.', followers_count: 220 } }))]);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'fallback-ai', 'common_follow', now(), '用户简介：A community launchpad on Base.', $3::jsonb)`, [raw.rows[0].id, project.rows[0].id, JSON.stringify(JSON.stringify({ follow_user: { screen_name: 'fallback.fun', description: 'A community launchpad on Base.\nCreate and launch in seconds.', followers_count: 220 } }))]);
     const unavailable: AiProviderAdapter = { ...adapter({ count: 0 }), complete: async () => { throw new Error('provider unavailable'); } };
     await createResearchProjectHandler(database, new AiProviderRouter([unavailable]))({ id: 'job-fallback-ai', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:fallback-ai', payload: { projectId: project.rows[0].id } });
     const result = await database.query<{ status: string; rendered_markdown: string }>('select status, rendered_markdown from report_versions');
@@ -124,6 +124,8 @@ describe('research-project handler', () => {
     expect(result.rows[0]?.rendered_markdown).toContain('## 六、标签');
     expect(result.rows[0]?.rendered_markdown).not.toContain('账号资料：');
     expect(result.rows[0]?.rendered_markdown).not.toContain('当前信号事实：');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('账号 @fallback.fun；简介：');
+    expect(result.rows[0]?.rendered_markdown).toContain('Create and launch in seconds');
   });
 
   it('replaces unfilled template placeholders instead of publishing them', async () => {

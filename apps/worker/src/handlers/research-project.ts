@@ -104,7 +104,7 @@ function containsRawTransportMetadata(value: string): boolean {
 }
 
 function profileFacts(profile: string): { description: string; followers?: number; posts?: number } {
-  const description = profile.match(/简介：(.+?)(?=；粉丝|；发帖|。|$)/u)?.[1]?.trim() ?? '';
+  const description = profile.match(/简介：([\s\S]+?)(?=；粉丝|；发帖|。|$)/u)?.[1]?.trim() ?? '';
   const followerRaw = profile.match(/粉丝\s*(\d+)/u)?.[1];
   const postsRaw = profile.match(/发帖\s*(\d+)/u)?.[1];
   return { description, followers: followerRaw ? Number(followerRaw) : undefined, posts: postsRaw ? Number(postsRaw) : undefined };
