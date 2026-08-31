@@ -164,8 +164,9 @@ export function createDecodeAlphaEventHandler(database: JobDatabase) {
       await new JobStore(database).enqueue({
         type: 'research_project',
         idempotencyKey: `research:${projectId}:signal:${signalId}`,
-        payload: { projectId },
-        priority: 30
+        payload: { projectId, triggerSignalId: signalId },
+        priority: 30,
+        runAfter: new Date(Date.now() + 5_000)
       });
     }
     await database.query('update raw_events set decode_status = $2 where id = $1', [payload.rawEventId, 'decoded']);

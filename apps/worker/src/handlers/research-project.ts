@@ -9,7 +9,7 @@ import {
 } from '@alpha-research/ai';
 import { OutboxStore, type JobDatabase, type JobRecord } from '@alpha-research/db';
 
-interface ResearchProjectPayload { projectId: string; }
+interface ResearchProjectPayload { projectId: string; triggerSignalId?: string; }
 interface ProjectRow { id: string; current_handle: string; display_name: string; status: string; profile_summary?: string; evidence_summary?: string; }
 interface SignalRow { id: string; type: string; occurred_at: string; common_follow_count: number | null; x_post_url: string | null; content: string | null; data: unknown; }
 interface EvidenceRow { id: string; signal_id: string | null; url: string; excerpt: string; content_hash: string; }
@@ -402,7 +402,7 @@ async function ensureReportVersion(database: JobDatabase, projectId: string, tri
 /** Generates a readable report only after the project has passed AI screening. */
 export function createResearchProjectHandler(database: JobDatabase, router: AiProviderRouter) {
   return async (job: JobRecord): Promise<void> => {
-    const { projectId } = parsePayload(job);
+    const { projectId, triggerSignalId } = parsePayload(job);
     const projectResult = await database.query<ProjectRow>(
       `select p.id, p.current_handle, p.display_name, p.status
        from projects p
@@ -423,9 +423,13 @@ export function createResearchProjectHandler(database: JobDatabase, router: AiPr
 
     const signals = (await database.query<SignalRow>(
       `select id, type, occurred_at, common_follow_count, x_post_url, content, data
-       from signals where project_id = $1 order by occurred_at desc limit 12`,
+       from signals where project_id = $1 order by occurred_at desc, id desc limit 12`,
       [projectId]
     )).rows;
+    // Signal jobs are immutable and uniquely keyed. When several pushes arrive
+    // before research catches up, only the newest job should call the model;
+    // older jobs become successful no-ops instead of producing stale versions.
+    if (triggerSignalId && signals[0]?.id !== triggerSignalId) return;
     const enrichedProject: ProjectRow = { ...project, profile_summary: profileSummary(signals), evidence_summary: signals.map(signalExcerpt).join('；').slice(0, 1800) };
     const evidence = await ensureEvidence(database, project, signals);
     const version = await ensureReportVersion(database, projectId, signals[0]?.id ?? null);

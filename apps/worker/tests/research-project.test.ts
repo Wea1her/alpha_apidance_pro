@@ -244,4 +244,19 @@ describe('research-project handler', () => {
     expect(result.rows[0]?.rendered_markdown).not.toContain('粉丝 4902');
     expect(result.rows[0]?.structured_document.tags).toEqual(['社交网络', 'NFT']);
   });
+
+  it('skips an obsolete signal job when a newer project signal already exists', async () => {
+    const database = new PGlite(); databases.push(database); await migrateDatabase(database);
+    const project = await database.query<{ id: string }>(`insert into projects (x_user_id, current_handle, display_name) values ('coalesce-user', 'coalesce', 'Coalesce') returning id`);
+    await database.query(`insert into screening_decisions (project_id, decision, account_type, reason) values ($1, 'allowed', 'PROJECT', '项目账号')`, [project.rows[0].id]);
+    const raw1 = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'coalesce-1', '{}'::jsonb, 'decoded') returning id`);
+    const raw2 = await database.query<{ id: string }>(`insert into raw_events (source, dedupe_key, payload, decode_status) values ('alpha_hook', 'coalesce-2', '{}'::jsonb, 'decoded') returning id`);
+    const oldSignal = await database.query<{ id: string }>(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'coalesce-user', 'common_follow', '2026-08-31T01:00:00Z', '旧信号', '{}'::jsonb) returning id`, [raw1.rows[0].id, project.rows[0].id]);
+    await database.query(`insert into signals (raw_event_id, project_id, x_user_id, type, occurred_at, content, data) values ($1, $2, 'coalesce-user', 'common_follow', '2026-08-31T01:01:00Z', '新信号', '{}'::jsonb)`, [raw2.rows[0].id, project.rows[0].id]);
+    const calls = { count: 0 };
+    await createResearchProjectHandler(database, new AiProviderRouter([adapter(calls)]))({ id: 'job-coalesce', type: 'research_project', priority: 1, status: 'running', idempotencyKey: 'research:coalesce:old', payload: { projectId: project.rows[0].id, triggerSignalId: oldSignal.rows[0].id } });
+    expect(calls.count).toBe(0);
+    const versions = await database.query<{ count: string }>('select count(*)::text as count from report_versions where project_id = $1', [project.rows[0].id]);
+    expect(versions.rows[0]?.count).toBe('0');
+  });
 });
