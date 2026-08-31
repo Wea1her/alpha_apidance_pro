@@ -122,6 +122,8 @@ describe('research-project handler', () => {
     expect(result.rows[0]?.status).toBe('ready');
     expect(result.rows[0]?.rendered_markdown).toContain('community launchpad');
     expect(result.rows[0]?.rendered_markdown).toContain('## 六、标签');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('账号资料：');
+    expect(result.rows[0]?.rendered_markdown).not.toContain('当前信号事实：');
   });
 
   it('replaces unfilled template placeholders instead of publishing them', async () => {

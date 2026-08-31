@@ -99,6 +99,10 @@ function sanitizeTag(value: string): string {
   return value.replace(/`/gu, '').replace(/[\r\n]+/gu, ' ').replace(/\s{2,}/gu, ' ').trim();
 }
 
+function containsRawTransportMetadata(value: string): boolean {
+  return /(?:账号资料：|当前信号事实：|绑定\s*(?:evidence|证据)|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)/iu.test(value);
+}
+
 function profileFacts(profile: string): { description: string; followers?: number; posts?: number } {
   const description = profile.match(/简介：(.+?)(?=；粉丝|；发帖|。|$)/u)?.[1]?.trim() ?? '';
   const followerRaw = profile.match(/粉丝\s*(\d+)/u)?.[1];
@@ -114,7 +118,7 @@ function normalizeReport(raw: Record<string, unknown>, fallbackProject?: Project
   const profileDescription = profile?.description || fallbackProject?.profile_summary?.replace(/^账号资料：/u, '').trim();
   const summaryCandidate = first(raw, ['abstract', 'summary', 'description', '项目摘要', '项目描述']) ?? first(project, ['summary', 'abstract', 'description', '摘要', '项目摘要', '项目描述']);
   const summaryValue = sectionValue(summaryCandidate, '项目核心信息', fallbackProject?.profile_summary ? `公开简介显示${profileDescription || '明确产品主题'}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式。');
-  const summary = isTemplateEcho(summaryValue)
+  const summary = isTemplateEcho(summaryValue) || containsRawTransportMetadata(summaryValue)
     ? (fallbackProject?.profile_summary ? `公开简介显示${profileDescription || '明确产品主题'}；具体产品机制、用户参与方式和当前交付仍需结合近期帖子核验。` : '公开定位资料不足，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。')
     : summaryValue;
   const rawStrengths = strings(first(focus, ['strengths', 'advantages', '优点', '优势'])).map((item) => sanitizeNarrative(sectionValue(item, '优点'))).filter((item) => item && detailedNarrative(item));
@@ -234,6 +238,8 @@ function assertReportComplete(report: ReportDocument, evidenceSummary = '', prof
   if (!meaningful(report.focusReason.reason)) failures.push('focusReason.reason');
   if (!report.focusReason.strengths.some(meaningful)) failures.push('focusReason.strengths');
   if (!report.focusReason.weaknesses.some(meaningful)) failures.push('focusReason.weaknesses');
+  const publicText = [report.coreInfo.summary, report.focusReason.currentProgress, ...report.focusReason.strengths, ...report.focusReason.weaknesses, report.focusReason.reason].join('\n');
+  if (containsRawTransportMetadata(publicText)) failures.push('raw_transport_metadata');
   const richEvidence = /(?:指标：|账号资料：|用户简介：|浏览\s*\d|点赞\s*\d|粉丝\s*\d|产品|测试网|主网|链上|交付)/u.test(evidenceSummary);
   if (richEvidence) {
     const coverage = `${report.focusReason.strengths.join(' ')} ${report.focusReason.weaknesses.join(' ')}`;
@@ -256,18 +262,23 @@ function assertReportComplete(report: ReportDocument, evidenceSummary = '', prof
 }
 
 function buildEvidenceFallbackReport(project: ProjectRow, signals: SignalRow[]): ReportDocument {
-  const profile = project.profile_summary?.trim();
-  const profileLower = (profile ?? '').toLowerCase();
+  const rawProfile = project.profile_summary?.trim();
+  const profile = rawProfile ? profileFacts(rawProfile) : undefined;
+  const description = profile?.description || rawProfile?.replace(/^账号资料：/u, '').trim() || '';
+  const profileLower = description.toLowerCase();
+  const accountMetrics = profile && (profile.followers !== undefined || profile.posts !== undefined)
+    ? `账号当前约${profile.followers ?? '未知'}名粉丝、累计${profile.posts ?? '未知'}条发帖`
+    : '账号粉丝与发帖规模暂无公开证据';
   const tweets = signals.filter((signal) => signal.type === 'new_tweet' && signal.content?.trim());
   const latest = tweets[0];
-  const summary = profile
-    ? `${project.display_name || project.current_handle} (@${project.current_handle.replace(/^@/, '')}) 定位线索来自公开账号资料：${profile}；当前尚缺少足够的公开帖子、产品演示和链上交付信息，具体机制、用户参与方式与后续窗口需要继续核验。`
+  const summary = description
+    ? `${project.display_name || project.current_handle} (@${project.current_handle.replace(/^@/, '')}) 定位为${description}；该定位体现了明确的产品对象与参与线索，但当前尚缺少足够的公开帖子、产品演示和链上交付信息，具体机制、用户路径、收入结构与后续窗口仍需继续核验。`
     : `${project.display_name || project.current_handle} (@${project.current_handle.replace(/^@/, '')}) 的公开定位资料有限，暂无法确认具体产品机制和参与方式；后续需结合账号近期帖子、官方链接和实际交付进一步判断。`;
   const progress = latest
     ? `最近可见帖子发表于 ${latest.occurred_at}，内容为“${latest.content!.trim().slice(0, 260)}”；当前仅能依据该样本判断账号仍有公开活动，帖子热度、讨论质量和粉丝增长需要更多连续样本验证。`
-    : '最近帖子不可公开读取/暂无公开正文；因此无法可靠判断近期发帖频率、帖子热度、讨论度和粉丝增长速度，待下一条公开帖子验证。';
-  const reason = profile
-    ? `持续观察。公开资料显示${profile}，具备明确的产品叙事线索；但当前缺少近期公开帖子、真实用户使用和链上交付证据，暂不具备高确定性判断。建议优先跟踪下一条公开帖子、产品链接和用户增长变化，严格小仓参与而非重仓。`
+    : `最近帖子不可公开读取/暂无公开正文；${accountMetrics}，因此无法可靠计算近期发帖频率、帖子热度、讨论度和粉丝增长速度，待下一条公开帖子验证。`;
+  const reason = description
+    ? `持续观察。公开定位显示项目围绕${description}展开，具备可继续验证的产品叙事；但${accountMetrics}，且当前缺少近期公开帖子、真实用户使用和链上交付证据，暂不具备高确定性判断。建议优先跟踪下一条公开帖子、产品链接、用户增长与可验证交付，严格小仓参与而非重仓。`
     : '持续观察。当前公开资料和有效信号不足，暂不具备高确定性判断；建议继续跟踪近期帖子、产品交付和用户增长，在出现可验证进展前不扩大仓位。';
   const tags = [
     /launchpad|launch pad|发射台|代币发射/iu.test(profileLower) || /\.fun$/iu.test(project.current_handle) ? 'Launchpad' : '',
@@ -282,8 +293,8 @@ function buildEvidenceFallbackReport(project: ProjectRow, signals: SignalRow[]):
     coreInfo: { projectName: project.display_name || project.current_handle, handle: `@${project.current_handle.replace(/^@/, '')}`, summary, stage: '早期公开构建阶段（基于当前可见信号）' },
     focusReason: {
       currentProgress: progress,
-      strengths: [profile ? `公开简介已经形成清晰的产品叙事：${profile}；若后续帖子能证明真实交付或用户参与，该方向具备早期传播与试错价值。` : '账号围绕一个明确主题或产品方向展开；若后续出现可验证交付与用户反馈，可能形成早期差异化。'],
-      weaknesses: [profile ? `目前证据主要停留在简介层面（${profile}），缺少产品演示、链上数据和持续更新记录，落地能力与用户留存仍无法确认；需要核对近期帖子、产品链接和实际使用记录。` : '公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'],
+      strengths: [description ? `公开定位围绕${description}形成了明确的产品对象和用户参与线索，降低了早期理解成本并具备一定传播辨识度；${accountMetrics}，若后续帖子能够证明产品演示、真实用户参与或链上交付，该方向可能形成早期流量与短期投机窗口，当前优势仍以低成本跟踪价值为主。` : '账号围绕一个明确主题或产品方向展开；若后续出现可验证交付与用户反馈，可能形成早期差异化。'],
+      weaknesses: [description ? `现有证据仍主要来自公开定位，${accountMetrics}，近期帖子正文、产品演示、链上数据和真实用户反馈不足；这会限制对团队执行力、产品留存与流动性的判断，若后续继续缺少连续更新或可验证使用记录，叙事落空风险会放大，需核对产品链接、帖子热度、用户增长和链上活动。` : '公开资料、推文细节或用户数据仍有限，部分判断需要后续公开证据验证。', '交付验证风险：尚未形成足够的产品使用、链上活动或持续更新记录，项目持续性仍需跟踪。'],
       reason
     },
     tags
