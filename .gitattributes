@@ -1,0 +1,6 @@
+# 技能文件会被运行时代码按原始内容读取并断言（tests/analysis-skill.test.ts），
+# 因此必须固定为 LF：若以 CRLF 提交，Linux 上 checkout 为 LF、Windows 上为 CRLF，
+# 断言只在 Windows 上失败（DEFAULT_* 常量是 LF）。
+# 仓库其余文本文件目前以 CRLF 存储，保持原样不动。
+analysis-skills/* text eol=lf
+.gitattributes   text eol=lf
