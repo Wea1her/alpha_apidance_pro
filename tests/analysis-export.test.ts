@@ -88,6 +88,17 @@ describe('isExportAuthorized', () => {
 });
 
 describe('buildAnalysisExport', () => {
+  it('keeps standard exports unchanged when the same five-star push also has a deep report', () => {
+    const records = [analysisRecord(), hitRecord()];
+    const deep: AnalysisArchiveRecord = {
+      ...analysisRecord(), ...hitRecord(), recordType: 'deep', sourceTaskKey: 'a:2:deep',
+      analysisText: '单独的深度报告', discussionAnalysisMessage: { chatId: '-1002222222222', messageId: 30 }
+    };
+    const range = parseShanghaiHourRange('2026-05-20T09', '2026-05-20T12');
+    const now = new Date('2026-05-20T05:40:00.000Z');
+    expect(buildAnalysisExport([...records, deep], range, now)).toEqual(buildAnalysisExport(records, range, now));
+  });
+
   it('groups projects by highest star and keeps full analysis text', () => {
     const range = parseShanghaiHourRange('2026-05-20T09', '2026-05-20T12');
     const result = buildAnalysisExport(

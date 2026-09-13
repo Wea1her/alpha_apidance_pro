@@ -1,5 +1,17 @@
 import { appendFile, mkdir, open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import type { TelegramSendResult } from './telegram.js';
+
+export type AnalysisTaskKind = 'standard' | 'deep';
+
+export interface DeepAnalysisProgress {
+  analysisText: string;
+  analysisCreatedAt: string;
+  messageTexts: string[];
+  discussionChatId: string;
+  replyToMessageId: number;
+  sentMessages: TelegramSendResult[];
+}
 
 export interface AnalysisTaskRecord {
   version: 1;
@@ -13,6 +25,9 @@ export interface AnalysisTaskRecord {
   mainPushedAt: string;
   count: number;
   star: number;
+  /** deep 表示 5 星触发的深度投研任务，缺省视为 standard。 */
+  kind?: AnalysisTaskKind;
+  deepProgress?: DeepAnalysisProgress;
   retryCount: number;
   nextRetryAt: string;
   createdAt: string;
@@ -31,6 +46,7 @@ export interface AnalysisTaskInput {
   mainPushedAt: string;
   count: number;
   star: number;
+  kind?: AnalysisTaskKind;
   lastError?: string;
 }
 
@@ -51,11 +67,14 @@ export interface AnalysisTaskProcessResult {
 
 export interface StartAnalysisRetryWorkerOptions {
   queue: AnalysisTaskQueue;
+  kind?: AnalysisTaskKind;
   intervalMs?: number;
   process: (task: AnalysisTaskRecord) => Promise<AnalysisTaskProcessResult>;
   info?: (message: string) => void;
   warn?: (message: string) => void;
 }
+
+const mutationQueues = new Map<string, Promise<void>>();
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -111,13 +130,24 @@ export class AnalysisTaskQueue {
   private readonly processingLockStaleMs: number;
 
   constructor(options: AnalysisTaskQueueOptions) {
-    this.filePath = options.filePath;
+    this.filePath = resolve(options.filePath);
     this.deadLetterPath = options.deadLetterPath;
     this.lockDir = options.lockDir ?? `${options.filePath}.locks`;
     this.maxAttempts = options.maxAttempts ?? 30;
     this.baseDelayMs = options.baseDelayMs ?? 30_000;
     this.maxDelayMs = options.maxDelayMs ?? 3_600_000;
     this.processingLockStaleMs = options.processingLockStaleMs ?? 15 * 60_000;
+  }
+
+  private mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = mutationQueues.get(this.filePath) ?? Promise.resolve();
+    const result = previous.then(operation);
+    const settled = result.then(() => undefined, () => undefined);
+    mutationQueues.set(this.filePath, settled);
+    void settled.then(() => {
+      if (mutationQueues.get(this.filePath) === settled) mutationQueues.delete(this.filePath);
+    });
+    return result;
   }
 
   private lockPath(taskKey: string): string {
@@ -174,8 +204,18 @@ export class AnalysisTaskQueue {
     }
   }
 
-  async enqueue(input: AnalysisTaskInput, now = new Date()): Promise<void> {
+  enqueue(input: AnalysisTaskInput, now = new Date()): Promise<boolean> {
+    return this.mutate(() => this.enqueueLocked(input, now));
+  }
+
+  private async enqueueLocked(input: AnalysisTaskInput, now: Date): Promise<boolean> {
     const records = await this.listAll();
+    if (input.kind === 'deep') {
+      const deadLetters = await readJsonl<AnalysisTaskRecord>(this.deadLetterPath);
+      if ([...records, ...deadLetters].some((record) => record.kind === 'deep' && record.projectKey === input.projectKey)) {
+        return false;
+      }
+    }
     const existing = records.find((record) => record.taskKey === input.taskKey);
     const timestamp = now.toISOString();
     const record: AnalysisTaskRecord = {
@@ -190,6 +230,7 @@ export class AnalysisTaskQueue {
       mainPushedAt: input.mainPushedAt,
       count: input.count,
       star: input.star,
+      kind: input.kind,
       retryCount: existing ? existing.retryCount : 0,
       nextRetryAt: existing ? existing.nextRetryAt : timestamp,
       createdAt: existing ? existing.createdAt : timestamp,
@@ -201,6 +242,7 @@ export class AnalysisTaskQueue {
       ...records.filter((existingRecord) => existingRecord.taskKey !== input.taskKey),
       record
     ]);
+    return true;
   }
 
   async listAll(): Promise<AnalysisTaskRecord[]> {
@@ -209,20 +251,43 @@ export class AnalysisTaskQueue {
 
   async listDue(now = new Date()): Promise<AnalysisTaskRecord[]> {
     const nowMs = now.getTime();
-    return dedupeByTaskKey(
-      (await this.listAll()).filter((record) => new Date(record.nextRetryAt).getTime() <= nowMs)
+    const records = dedupeByTaskKey(await this.listAll());
+    // 兼容旧队列：首次 5 星任务退避时，后续命中也不能抢先换到另一个线程。
+    const firstDeepByProject = new Map<string, AnalysisTaskRecord>();
+    for (const record of records) {
+      if (record.kind !== 'deep') continue;
+      const first = firstDeepByProject.get(record.projectKey);
+      if (!first || record.mainPushedAt < first.mainPushedAt) firstDeepByProject.set(record.projectKey, record);
+    }
+    return records.filter((record) =>
+      (record.kind !== 'deep' || firstDeepByProject.get(record.projectKey) === record) &&
+      new Date(record.nextRetryAt).getTime() <= nowMs
     );
   }
 
-  async remove(taskKey: string): Promise<void> {
-    const records = await this.listAll();
-    await writeJsonl(
-      this.filePath,
-      records.filter((record) => record.taskKey !== taskKey)
-    );
+  remove(taskKey: string): Promise<void> {
+    return this.mutate(async () => {
+      const records = await this.listAll();
+      await writeJsonl(this.filePath, records.filter((record) => record.taskKey !== taskKey));
+    });
   }
 
-  async markFailure(taskKey: string, error: unknown, now = new Date()): Promise<'pending' | 'dead-letter'> {
+  saveDeepProgress(taskKey: string, progress: DeepAnalysisProgress, now = new Date()): Promise<void> {
+    return this.mutate(async () => {
+      const records = await this.listAll();
+      const record = records.find((candidate) => candidate.taskKey === taskKey && candidate.kind === 'deep');
+      if (!record) throw new Error(`Deep analysis task not found: ${taskKey}`);
+      await writeJsonl(this.filePath, records.map((candidate) => candidate.taskKey === taskKey
+        ? { ...candidate, deepProgress: progress, updatedAt: now.toISOString() }
+        : candidate));
+    });
+  }
+
+  markFailure(taskKey: string, error: unknown, now = new Date()): Promise<'pending' | 'dead-letter'> {
+    return this.mutate(() => this.markFailureLocked(taskKey, error, now));
+  }
+
+  private async markFailureLocked(taskKey: string, error: unknown, now: Date): Promise<'pending' | 'dead-letter'> {
     const records = await this.listAll();
     const record = records.find((candidate) => candidate.taskKey === taskKey);
     if (!record) return 'pending';
@@ -266,13 +331,17 @@ export function startAnalysisRetryWorker(options: StartAnalysisRetryWorkerOption
     try {
       const dueTasks = await options.queue.listDue();
       for (const task of dueTasks) {
+        if (options.kind && (task.kind ?? 'standard') !== options.kind) continue;
         let releaseLock: (() => Promise<void>) | null = null;
         try {
-          releaseLock = await options.queue.tryAcquireProcessingLock(task.taskKey);
+          const lockKey = task.kind === 'deep' ? `deep:${task.projectKey}` : task.taskKey;
+          releaseLock = await options.queue.tryAcquireProcessingLock(lockKey);
           if (!releaseLock) {
             continue;
           }
-          const result = await options.process(task);
+          const current = (await options.queue.listAll()).find((record) => record.taskKey === task.taskKey);
+          if (!current || new Date(current.nextRetryAt).getTime() > Date.now()) continue;
+          const result = await options.process(current);
           if (result.status === 'done') {
             await options.queue.remove(task.taskKey);
             info(`分析补偿成功：taskKey=${task.taskKey}`);

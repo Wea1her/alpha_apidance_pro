@@ -12,21 +12,18 @@ describe('parseServiceConfig', () => {
     expect(
       parseServiceConfig({
         ...baseEnv,
-        COMMON_FOLLOW_STAR_LEVELS: '5,8,12,15,20',
-        TWITTER_TOKEN: 'twitter-token',
-        TWITTER_API_BASE_URL: 'https://example.6551'
+        COMMON_FOLLOW_STAR_LEVELS: '5,8,12,15,20'
       })
     ).toMatchObject({
       alphaWalletPrivateKey: '0xabc',
       telegramBotToken: 'bot-token',
       telegramChatId: '-100123',
       commonFollowStarLevels: [5, 8, 12, 15, 20],
-      twitterToken: 'twitter-token',
-      twitterApiBaseUrl: 'https://example.6551',
       xaiRetryAttempts: 5,
       xaiRetryMinDelayMs: 1000,
       xaiRetryMaxDelayMs: 20000,
       xaiMaxTokens: 2048,
+      xaiSearchTools: ['web_search', 'x_search'],
       telegramRetryAttempts: 5,
       heartbeatTimeoutMs: 90000,
       businessSilenceTimeoutMs: 60000,
@@ -46,6 +43,17 @@ describe('parseServiceConfig', () => {
       exportAllowedChatIds: [],
       projectStatePath: 'data/project-state.json'
     });
+  });
+
+  it('does not expose removed 6551 twitter config', () => {
+    const config = parseServiceConfig({
+      ...baseEnv,
+      TWITTER_TOKEN: 'twitter-token',
+      TWITTER_API_BASE_URL: 'https://example.6551'
+    });
+
+    expect(config).not.toHaveProperty('twitterToken');
+    expect(config).not.toHaveProperty('twitterApiBaseUrl');
   });
 
   it('parses telegram retry config', () => {
@@ -91,15 +99,6 @@ describe('parseServiceConfig', () => {
     });
   });
 
-  it('defaults twitter api base url for 6551', () => {
-    expect(
-      parseServiceConfig(baseEnv)
-    ).toMatchObject({
-      twitterToken: undefined,
-      twitterApiBaseUrl: 'https://ai.6551.io'
-    });
-  });
-
   it('parses xAI retry and output budget config', () => {
     expect(
       parseServiceConfig({
@@ -115,6 +114,30 @@ describe('parseServiceConfig', () => {
       xaiRetryMaxDelayMs: 12000,
       xaiMaxTokens: 4096
     });
+  });
+
+  it('parses xAI search tools config', () => {
+    expect(parseServiceConfig(baseEnv).xaiSearchTools).toEqual(['web_search', 'x_search']);
+    expect(parseServiceConfig({ ...baseEnv, XAI_SEARCH_TOOLS: '' }).xaiSearchTools).toEqual([
+      'web_search',
+      'x_search'
+    ]);
+    expect(parseServiceConfig({ ...baseEnv, XAI_SEARCH_TOOLS: '  ' }).xaiSearchTools).toEqual([
+      'web_search',
+      'x_search'
+    ]);
+    expect(parseServiceConfig({ ...baseEnv, XAI_SEARCH_TOOLS: 'none' }).xaiSearchTools).toEqual([]);
+    expect(parseServiceConfig({ ...baseEnv, XAI_SEARCH_TOOLS: 'NONE' }).xaiSearchTools).toEqual([]);
+    expect(parseServiceConfig({ ...baseEnv, XAI_SEARCH_TOOLS: ' X_SEARCH , x_search ' }).xaiSearchTools).toEqual([
+      'x_search'
+    ]);
+    expect(parseServiceConfig({ ...baseEnv, XAI_SEARCH_TOOLS: 'x_search,web_search' }).xaiSearchTools).toEqual([
+      'x_search',
+      'web_search'
+    ]);
+    expect(() => parseServiceConfig({ ...baseEnv, XAI_SEARCH_TOOLS: 'web_search,google' })).toThrow(
+      'XAI_SEARCH_TOOLS contains unsupported search tool: google'
+    );
   });
 
   it('requires telegram config for service mode', () => {
@@ -182,5 +205,48 @@ describe('parseServiceConfig', () => {
     ).toMatchObject({
       projectStatePath: 'data/custom-project-state.json'
     });
+  });
+
+  it('keeps deep research disabled until its own API key is configured', () => {
+    expect(parseServiceConfig({ ...baseEnv, XAI_API_KEY: 'standard-key' }).deepAnalysis).toBeUndefined();
+    expect(parseServiceConfig({ ...baseEnv, XAI_DEEP_API_KEY: '  ' }).deepAnalysis).toBeUndefined();
+  });
+
+  it('uses fengshao multi-agent defaults independently of standard grok-4.3', () => {
+    const config = parseServiceConfig({
+      ...baseEnv, XAI_API_KEY: 'standard-key', XAI_MODEL: 'grok-4.3',
+      XAI_BASE_URL: 'https://standard.example', XAI_DEEP_API_KEY: ' deep-key '
+    });
+    expect(config.deepAnalysis).toEqual({
+      xaiApiKey: 'deep-key', xaiBaseUrl: 'https://api.fengshao1227.com',
+      xaiModel: 'grok-4.20-multi-agent-0309', xaiMaxTokens: 4096, xaiSearchTools: ['web_search']
+    });
+    expect(config).toMatchObject({
+      xaiApiKey: 'standard-key', xaiBaseUrl: 'https://standard.example',
+      xaiModel: 'grok-4.3', xaiMaxTokens: 2048, xaiSearchTools: ['web_search', 'x_search']
+    });
+  });
+
+  it('parses deep overrides and explicit search opt-out', () => {
+    const env = {
+      ...baseEnv, XAI_DEEP_API_KEY: 'deep', XAI_DEEP_BASE_URL: ' https://custom.example ',
+      XAI_DEEP_MODEL: ' custom-model ', XAI_DEEP_MAX_TOKENS: '8192', XAI_DEEP_SEARCH_TOOLS: 'WEB_SEARCH,web_search'
+    };
+    expect(parseServiceConfig(env).deepAnalysis).toEqual({
+      xaiApiKey: 'deep', xaiBaseUrl: 'https://custom.example', xaiModel: 'custom-model',
+      xaiMaxTokens: 8192, xaiSearchTools: ['web_search']
+    });
+    expect(parseServiceConfig({ ...env, XAI_DEEP_SEARCH_TOOLS: 'none' }).deepAnalysis?.xaiSearchTools).toEqual([]);
+    expect(parseServiceConfig({ ...env, XAI_DEEP_SEARCH_TOOLS: '' }).deepAnalysis?.xaiSearchTools).toEqual(['web_search']);
+  });
+
+  it.each(['0', '-1', 'abc'])('rejects an invalid deep token budget: %s', (budget) => {
+    expect(() => parseServiceConfig({ ...baseEnv, XAI_DEEP_API_KEY: 'deep', XAI_DEEP_MAX_TOKENS: budget }))
+      .toThrow('XAI_DEEP_MAX_TOKENS must be a positive integer');
+  });
+
+  it('rejects unknown deep search tools', () => {
+    expect(() => parseServiceConfig({ ...baseEnv, XAI_DEEP_API_KEY: 'deep', XAI_DEEP_SEARCH_TOOLS: 'google' }))
+      .toThrow('XAI_DEEP_SEARCH_TOOLS contains unsupported search tool: google');
   });
 });

@@ -1,0 +1,320 @@
+{
+  "experiment": "Controlled two-process lost-update reproduction using current real file stores",
+  "executedAt": "2026-09-13T09:16:24.447Z",
+  "repositoryRoot": "/home/yexianglun/my_projects/daxinjiankong",
+  "runDirectory": "/tmp/alpha-file-store-stress-hvQNNK/run-SdHXIk",
+  "nodeVersion": "v22.17.0",
+  "childProcessCount": 2,
+  "totalSyntheticRecordSubmissions": 12,
+  "noNetworkOrRealServiceOperations": true,
+  "sourceHashes": {
+    "src/analysis-archive-store.ts": "d0f39e90621e328b33221a79d9ce971408756b187723e48935df7da016edd7bc",
+    "src/analysis-task-queue.ts": "4b54a3127e45ab03b556d5dee5ffd516b672a8a924706c1770e241cabd543654",
+    "src/project-state-store.ts": "2744cd8e6e1b1974a5da2c60fac55f7b4c1db2edd84e1b8f4179d484d875f304"
+  },
+  "interpretation": "Acknowledged lost updates were reproduced for: archive, queue, project-state. Inspect actualKeys and missingKeys for the exact retained and lost records.",
+  "method": "Pause only the return of a real read of an isolated synthetic fixture, until both processes have the old snapshot; complete writer A, then release writer B. All store validation, record construction, writes and renames are real and unchanged.",
+  "limitation": "This controlled schedule can establish an allowed lost-update interleaving. It is not a throughput benchmark, a measured production incident rate, or a validation of frontend SLOs.",
+  "projectStateScope": "ProjectStateStore load-edit-save is a caller-level read/modify/write sequence; save is a whole-state replacement API. This demonstrates absence of a store-provided concurrent merge guarantee.",
+  "cases": [
+    {
+      "caseId": "archive-sequential",
+      "store": "archive",
+      "mode": "sequential",
+      "fixtureFile": "/tmp/alpha-file-store-stress-hvQNNK/run-SdHXIk/archive-sequential/fixture.jsonl",
+      "expectedRecordCount": 2,
+      "actualRecordCount": 2,
+      "acknowledgedOperations": 2,
+      "expectedKeys": [
+        "synthetic-archive-sequential-a",
+        "synthetic-archive-sequential-b"
+      ],
+      "actualKeys": [
+        "synthetic-archive-sequential-a",
+        "synthetic-archive-sequential-b"
+      ],
+      "missingKeys": [],
+      "errors": [],
+      "snapshots": [],
+      "completions": [
+        {
+          "type": "complete",
+          "caseId": "archive-sequential",
+          "key": "synthetic-archive-sequential-a",
+          "acknowledged": true,
+          "error": null,
+          "writer": "a"
+        },
+        {
+          "type": "complete",
+          "caseId": "archive-sequential",
+          "key": "synthetic-archive-sequential-b",
+          "acknowledged": true,
+          "error": null,
+          "writer": "b"
+        }
+      ],
+      "lostUpdateReproduced": false
+    },
+    {
+      "caseId": "archive-controlled-overlap",
+      "store": "archive",
+      "mode": "controlled-overlap",
+      "fixtureFile": "/tmp/alpha-file-store-stress-hvQNNK/run-SdHXIk/archive-controlled-overlap/fixture.jsonl",
+      "expectedRecordCount": 2,
+      "actualRecordCount": 1,
+      "acknowledgedOperations": 2,
+      "expectedKeys": [
+        "synthetic-archive-controlled-overlap-a",
+        "synthetic-archive-controlled-overlap-b"
+      ],
+      "actualKeys": [
+        "synthetic-archive-controlled-overlap-b"
+      ],
+      "missingKeys": [
+        "synthetic-archive-controlled-overlap-a"
+      ],
+      "errors": [],
+      "snapshots": [
+        {
+          "type": "snapshot-read",
+          "caseId": "archive-controlled-overlap",
+          "recordsSeen": 0,
+          "bytesRead": 0,
+          "writer": "a"
+        },
+        {
+          "type": "snapshot-read",
+          "caseId": "archive-controlled-overlap",
+          "recordsSeen": 0,
+          "bytesRead": 0,
+          "writer": "b"
+        }
+      ],
+      "completions": [
+        {
+          "type": "complete",
+          "caseId": "archive-controlled-overlap",
+          "key": "synthetic-archive-controlled-overlap-a",
+          "acknowledged": true,
+          "error": null,
+          "writer": "a"
+        },
+        {
+          "type": "complete",
+          "caseId": "archive-controlled-overlap",
+          "key": "synthetic-archive-controlled-overlap-b",
+          "acknowledged": true,
+          "error": null,
+          "writer": "b"
+        }
+      ],
+      "lostUpdateReproduced": true
+    },
+    {
+      "caseId": "queue-sequential",
+      "store": "queue",
+      "mode": "sequential",
+      "fixtureFile": "/tmp/alpha-file-store-stress-hvQNNK/run-SdHXIk/queue-sequential/fixture.jsonl",
+      "expectedRecordCount": 2,
+      "actualRecordCount": 2,
+      "acknowledgedOperations": 2,
+      "expectedKeys": [
+        "synthetic-queue-sequential-a",
+        "synthetic-queue-sequential-b"
+      ],
+      "actualKeys": [
+        "synthetic-queue-sequential-a",
+        "synthetic-queue-sequential-b"
+      ],
+      "missingKeys": [],
+      "errors": [],
+      "snapshots": [],
+      "completions": [
+        {
+          "type": "complete",
+          "caseId": "queue-sequential",
+          "key": "synthetic-queue-sequential-a",
+          "acknowledged": true,
+          "error": null,
+          "writer": "a"
+        },
+        {
+          "type": "complete",
+          "caseId": "queue-sequential",
+          "key": "synthetic-queue-sequential-b",
+          "acknowledged": true,
+          "error": null,
+          "writer": "b"
+        }
+      ],
+      "lostUpdateReproduced": false
+    },
+    {
+      "caseId": "queue-controlled-overlap",
+      "store": "queue",
+      "mode": "controlled-overlap",
+      "fixtureFile": "/tmp/alpha-file-store-stress-hvQNNK/run-SdHXIk/queue-controlled-overlap/fixture.jsonl",
+      "expectedRecordCount": 2,
+      "actualRecordCount": 1,
+      "acknowledgedOperations": 2,
+      "expectedKeys": [
+        "synthetic-queue-controlled-overlap-a",
+        "synthetic-queue-controlled-overlap-b"
+      ],
+      "actualKeys": [
+        "synthetic-queue-controlled-overlap-b"
+      ],
+      "missingKeys": [
+        "synthetic-queue-controlled-overlap-a"
+      ],
+      "errors": [],
+      "snapshots": [
+        {
+          "type": "snapshot-read",
+          "caseId": "queue-controlled-overlap",
+          "recordsSeen": 0,
+          "bytesRead": 0,
+          "writer": "a"
+        },
+        {
+          "type": "snapshot-read",
+          "caseId": "queue-controlled-overlap",
+          "recordsSeen": 0,
+          "bytesRead": 0,
+          "writer": "b"
+        }
+      ],
+      "completions": [
+        {
+          "type": "complete",
+          "caseId": "queue-controlled-overlap",
+          "key": "synthetic-queue-controlled-overlap-a",
+          "acknowledged": true,
+          "error": null,
+          "writer": "a"
+        },
+        {
+          "type": "complete",
+          "caseId": "queue-controlled-overlap",
+          "key": "synthetic-queue-controlled-overlap-b",
+          "acknowledged": true,
+          "error": null,
+          "writer": "b"
+        }
+      ],
+      "lostUpdateReproduced": true
+    },
+    {
+      "caseId": "project-state-sequential",
+      "store": "project-state",
+      "mode": "sequential",
+      "fixtureFile": "/tmp/alpha-file-store-stress-hvQNNK/run-SdHXIk/project-state-sequential/fixture.json",
+      "expectedRecordCount": 2,
+      "actualRecordCount": 2,
+      "acknowledgedOperations": 2,
+      "expectedKeys": [
+        "synthetic-project-state-sequential-a",
+        "synthetic-project-state-sequential-b"
+      ],
+      "actualKeys": [
+        "synthetic-project-state-sequential-a",
+        "synthetic-project-state-sequential-b"
+      ],
+      "missingKeys": [],
+      "errors": [],
+      "snapshots": [],
+      "completions": [
+        {
+          "type": "complete",
+          "caseId": "project-state-sequential",
+          "key": "synthetic-project-state-sequential-a",
+          "acknowledged": true,
+          "error": null,
+          "writer": "a"
+        },
+        {
+          "type": "complete",
+          "caseId": "project-state-sequential",
+          "key": "synthetic-project-state-sequential-b",
+          "acknowledged": true,
+          "error": null,
+          "writer": "b"
+        }
+      ],
+      "lostUpdateReproduced": false
+    },
+    {
+      "caseId": "project-state-controlled-overlap",
+      "store": "project-state",
+      "mode": "controlled-overlap",
+      "fixtureFile": "/tmp/alpha-file-store-stress-hvQNNK/run-SdHXIk/project-state-controlled-overlap/fixture.json",
+      "expectedRecordCount": 2,
+      "actualRecordCount": 1,
+      "acknowledgedOperations": 2,
+      "expectedKeys": [
+        "synthetic-project-state-controlled-overlap-a",
+        "synthetic-project-state-controlled-overlap-b"
+      ],
+      "actualKeys": [
+        "synthetic-project-state-controlled-overlap-b"
+      ],
+      "missingKeys": [
+        "synthetic-project-state-controlled-overlap-a"
+      ],
+      "errors": [],
+      "snapshots": [
+        {
+          "type": "snapshot-read",
+          "caseId": "project-state-controlled-overlap",
+          "recordsSeen": 0,
+          "bytesRead": 28,
+          "writer": "a"
+        },
+        {
+          "type": "snapshot-read",
+          "caseId": "project-state-controlled-overlap",
+          "recordsSeen": 0,
+          "bytesRead": 28,
+          "writer": "b"
+        }
+      ],
+      "completions": [
+        {
+          "type": "complete",
+          "caseId": "project-state-controlled-overlap",
+          "key": "synthetic-project-state-controlled-overlap-a",
+          "acknowledged": true,
+          "error": null,
+          "writer": "a"
+        },
+        {
+          "type": "complete",
+          "caseId": "project-state-controlled-overlap",
+          "key": "synthetic-project-state-controlled-overlap-b",
+          "acknowledged": true,
+          "error": null,
+          "writer": "b"
+        }
+      ],
+      "lostUpdateReproduced": true
+    }
+  ],
+  "workers": [
+    {
+      "writer": "a",
+      "exitCode": 0,
+      "exitSignal": null,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "writer": "b",
+      "exitCode": 0,
+      "exitSignal": null,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "harnessError": null
+}

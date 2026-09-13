@@ -3,6 +3,7 @@ import {
   DEFAULT_ALPHA_WS_BASE_URL
 } from './alpha-client.js';
 import { parseStarLevels } from './common-follow-rules.js';
+import { XAI_SEARCH_TOOL_TYPES, type XaiSearchTool } from './xai-client.js';
 
 export interface ServiceConfig {
   alphaWalletPrivateKey: string;
@@ -19,8 +20,8 @@ export interface ServiceConfig {
   xaiRetryMinDelayMs: number;
   xaiRetryMaxDelayMs: number;
   xaiMaxTokens: number;
-  twitterToken?: string;
-  twitterApiBaseUrl: string;
+  xaiSearchTools: XaiSearchTool[];
+  deepAnalysis?: DeepAnalysisConfig;
   commonFollowStarLevels: number[];
   heartbeatTimeoutMs: number;
   businessSilenceTimeoutMs: number;
@@ -45,6 +46,24 @@ export interface ServiceConfig {
 }
 
 type EnvLike = Record<string, string | undefined>;
+
+/**
+ * 5 星深度投研配置：走独立渠道（中转站 + multi-agent 模型）。
+ * XAI_DEEP_API_KEY 未配置时深度分析整体关闭。
+ */
+export interface DeepAnalysisConfig {
+  xaiApiKey: string;
+  xaiBaseUrl: string;
+  xaiModel: string;
+  xaiMaxTokens: number;
+  xaiSearchTools: XaiSearchTool[];
+}
+
+const DEFAULT_DEEP_BASE_URL = 'https://api.fengshao1227.com';
+const DEFAULT_DEEP_MODEL = 'grok-4.20-multi-agent-0309';
+const DEFAULT_DEEP_SEARCH_TOOLS: readonly XaiSearchTool[] = ['web_search'];
+
+const DEFAULT_XAI_SEARCH_TOOLS: readonly XaiSearchTool[] = ['web_search', 'x_search'];
 
 function requireEnv(env: EnvLike, key: string): string {
   const value = env[key]?.trim();
@@ -80,7 +99,31 @@ function parseUsernameList(raw: string | undefined): string[] {
     .filter((value) => value.length > 0);
 }
 
+/**
+ * 未定义或空串 → 默认开启 web_search + x_search（.env.example 的空值经 dotenv 加载后是空串，不能当成关闭）；
+ * `none` → 关闭联网检索；其他值必须是受支持的工具名。
+ */
+function parseXaiSearchTools(env: EnvLike, key: string, fallback: readonly XaiSearchTool[] = DEFAULT_XAI_SEARCH_TOOLS): XaiSearchTool[] {
+  const raw = env[key]?.trim();
+  if (!raw) return [...fallback];
+  if (raw.toLowerCase() === 'none') return [];
+
+  const tools: XaiSearchTool[] = [];
+  for (const value of parseCsvList(raw)) {
+    const normalized = value.toLowerCase();
+    if (!(XAI_SEARCH_TOOL_TYPES as readonly string[]).includes(normalized)) {
+      throw new Error(`${key} contains unsupported search tool: ${value}`);
+    }
+    const tool = normalized as XaiSearchTool;
+    if (!tools.includes(tool)) {
+      tools.push(tool);
+    }
+  }
+  return tools;
+}
+
 export function parseServiceConfig(env: EnvLike): ServiceConfig {
+  const deepApiKey = env.XAI_DEEP_API_KEY?.trim();
   return {
     alphaWalletPrivateKey: requireEnv(env, 'ALPHA_WALLET_PRIVATE_KEY'),
     alphaBaseUrl: env.ALPHA_BASE_URL?.trim() || DEFAULT_ALPHA_BASE_URL,
@@ -96,8 +139,16 @@ export function parseServiceConfig(env: EnvLike): ServiceConfig {
     xaiRetryMinDelayMs: parsePositiveInteger(env, 'XAI_RETRY_MIN_DELAY_MS', 1_000),
     xaiRetryMaxDelayMs: parsePositiveInteger(env, 'XAI_RETRY_MAX_DELAY_MS', 20_000),
     xaiMaxTokens: parsePositiveInteger(env, 'XAI_MAX_TOKENS', 2_048),
-    twitterToken: env.TWITTER_TOKEN?.trim() || undefined,
-    twitterApiBaseUrl: env.TWITTER_API_BASE_URL?.trim() || 'https://ai.6551.io',
+    xaiSearchTools: parseXaiSearchTools(env, 'XAI_SEARCH_TOOLS'),
+    deepAnalysis: deepApiKey
+      ? {
+          xaiApiKey: deepApiKey,
+          xaiBaseUrl: env.XAI_DEEP_BASE_URL?.trim() || DEFAULT_DEEP_BASE_URL,
+          xaiModel: env.XAI_DEEP_MODEL?.trim() || DEFAULT_DEEP_MODEL,
+          xaiMaxTokens: parsePositiveInteger(env, 'XAI_DEEP_MAX_TOKENS', 4_096),
+          xaiSearchTools: parseXaiSearchTools(env, 'XAI_DEEP_SEARCH_TOOLS', DEFAULT_DEEP_SEARCH_TOOLS)
+        }
+      : undefined,
     commonFollowStarLevels: parseStarLevels(env.COMMON_FOLLOW_STAR_LEVELS),
     heartbeatTimeoutMs: parsePositiveInteger(env, 'ALPHA_HEARTBEAT_TIMEOUT_MS', 90_000),
     businessSilenceTimeoutMs: parsePositiveInteger(env, 'ALPHA_BUSINESS_SILENCE_TIMEOUT_MS', 60_000),

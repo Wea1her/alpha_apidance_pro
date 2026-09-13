@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it, vi } from 'vitest';
-import { AnalysisTaskQueue, startAnalysisRetryWorker } from '../src/analysis-task-queue.js';
+import { AnalysisTaskQueue, startAnalysisRetryWorker, type AnalysisTaskRecord, type DeepAnalysisProgress } from '../src/analysis-task-queue.js';
 
 async function createQueue(options: { maxAttempts?: number; baseDelayMs?: number } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'analysis-task-queue-'));
@@ -197,5 +197,107 @@ describe('startAnalysisRetryWorker', () => {
     stop();
 
     await expect(queue.listAll()).resolves.toEqual([]);
+  });
+});
+
+describe('deep task persistence', () => {
+  const deepTask = { ...task, taskKey: `${task.taskKey}:deep`, star: 5, kind: 'deep' as const };
+  const progress: DeepAnalysisProgress = {
+    analysisText: '深度报告正文',
+    analysisCreatedAt: '2026-09-13T05:00:00.000Z',
+    discussionChatId: '-1002',
+    replyToMessageId: 99,
+    messageTexts: ['Grok 深度分析\n\n深度报告正文'],
+    sentMessages: []
+  };
+
+  it('keeps the first five-star message through concurrent hits and a queue restart', async () => {
+    const { dir, queue } = await createQueue();
+    expect(await Promise.all([
+      queue.enqueue(deepTask),
+      queue.enqueue({ ...deepTask, taskKey: 'later:deep', channelMessageId: 100 })
+    ])).toEqual([true, false]);
+    const restarted = new AnalysisTaskQueue({
+      filePath: join(dir, 'analysis-tasks.jsonl'), deadLetterPath: join(dir, 'analysis-dead-letter.jsonl')
+    });
+    await expect(restarted.enqueue({ ...deepTask, taskKey: 'after-restart:deep' })).resolves.toBe(false);
+    await expect(restarted.listAll()).resolves.toMatchObject([{ channelMessageId: 88, taskKey: deepTask.taskKey }]);
+  });
+
+  it('retains generated progress while standard tasks are concurrently enqueued and removed', async () => {
+    const { dir, queue } = await createQueue();
+    const other = new AnalysisTaskQueue({
+      filePath: join(dir, 'analysis-tasks.jsonl'), deadLetterPath: join(dir, 'analysis-dead-letter.jsonl')
+    });
+    await queue.enqueue(deepTask);
+    await queue.enqueue({ ...task, taskKey: 'finished-standard' });
+    await Promise.all([
+      queue.saveDeepProgress(deepTask.taskKey, progress),
+      other.enqueue(task),
+      other.remove('finished-standard')
+    ]);
+    await queue.markFailure(deepTask.taskKey, new Error('retry delivery'));
+    const rows = await other.listAll();
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.kind === 'deep')).toMatchObject({ deepProgress: progress, retryCount: 1 });
+    expect(rows.find((row) => row.kind !== 'deep')?.taskKey).toBe(task.taskKey);
+    await expect(queue.saveDeepProgress('missing', progress)).rejects.toThrow('not found');
+  });
+
+  it('does not create another deep task after the first one enters dead letter', async () => {
+    const { queue } = await createQueue({ maxAttempts: 1 });
+    await queue.enqueue(deepTask);
+    await queue.saveDeepProgress(deepTask.taskKey, progress);
+    await expect(queue.markFailure(deepTask.taskKey, new Error('delivery exhausted'))).resolves.toBe('dead-letter');
+    await expect(queue.enqueue({ ...deepTask, taskKey: 'later:deep' })).resolves.toBe(false);
+    await expect(queue.enqueue({ ...deepTask, taskKey: 'another:deep', projectKey: 'another' })).resolves.toBe(true);
+    await expect(queue.enqueue(task)).resolves.toBe(true);
+  });
+
+  it('does not let legacy duplicate tasks bypass a first five-star task in backoff', async () => {
+    const { dir, queue } = await createQueue();
+    const first = {
+      ...deepTask, version: 1, retryCount: 1,
+      createdAt: '2026-05-16T00:00:00.000Z', updatedAt: '2026-05-16T00:00:00.000Z',
+      nextRetryAt: '2026-05-16T00:01:00.000Z'
+    };
+    const later = {
+      ...first, taskKey: 'later:deep', channelMessageId: 100,
+      mainPushedAt: '2026-05-16T00:00:10.000Z', nextRetryAt: '2026-05-16T00:00:10.000Z'
+    };
+    await writeFile(join(dir, 'analysis-tasks.jsonl'), `${JSON.stringify(later)}\n${JSON.stringify(first)}\n`);
+    await expect(queue.listDue(new Date('2026-05-16T00:00:20Z'))).resolves.toEqual([]);
+    await expect(queue.listDue(new Date('2026-05-16T00:01:00Z'))).resolves.toMatchObject([{ taskKey: first.taskKey }]);
+  });
+
+  it('keeps standard analysis running while an independent deep worker waits on its model', async () => {
+    const { queue } = await createQueue();
+    await queue.enqueue(deepTask);
+    await queue.enqueue(task);
+    let complete!: () => void;
+    const waiting = new Promise<void>((resolve) => { complete = resolve; });
+    const deepProcess = vi.fn(async (_task: AnalysisTaskRecord) => { await waiting; return { status: 'done' as const }; });
+    const standardProcess = vi.fn().mockResolvedValue({ status: 'done' });
+    const stopDeep = startAnalysisRetryWorker({
+      queue, kind: 'deep', process: deepProcess, intervalMs: 60_000, info: vi.fn(), warn: vi.fn()
+    });
+    const stopStandard = startAnalysisRetryWorker({
+      queue, kind: 'standard', process: standardProcess, intervalMs: 60_000, info: vi.fn(), warn: vi.fn()
+    });
+    try {
+      await vi.waitFor(async () => {
+        expect(deepProcess).toHaveBeenCalledOnce();
+        expect(standardProcess).toHaveBeenCalledOnce();
+        expect(await queue.listAll()).toHaveLength(1);
+      });
+      expect(standardProcess.mock.calls[0][0].kind).toBeUndefined();
+      expect(deepProcess.mock.calls[0][0].kind).toBe('deep');
+      complete();
+      await vi.waitFor(async () => expect(await queue.listAll()).toEqual([]));
+    } finally {
+      complete();
+      stopDeep();
+      stopStandard();
+    }
   });
 });

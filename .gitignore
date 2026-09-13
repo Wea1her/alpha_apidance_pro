@@ -6,3 +6,5 @@ data/
 .codex/
 .agents/
 .worktrees/
+.omx/
+.claude/

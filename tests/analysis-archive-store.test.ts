@@ -217,4 +217,30 @@ describe('AnalysisArchiveStore', () => {
       ['project-b', { discussionChatId: '-1003', analysisMessageId: 30 }]
     ]);
   });
+
+  it('restores the first deep report independently of standard analyses and reminders', async () => {
+    const filePath = await tempPath();
+    const store = new AnalysisArchiveStore({ filePath });
+    const deep: AnalysisArchiveRecord = {
+      ...analysisRecord, recordType: 'deep', sourceTaskKey: '-1001:10:deep',
+      discussionAnalysisMessage: { chatId: '-1002', messageId: 99 }, analysisText: '深度投研正文'
+    };
+    await store.upsert(analysisRecord);
+    await store.upsert(deep);
+    await store.upsert({ ...deep, sourceTaskKey: '-1001:11:deep', mainPushedAt: '2026-05-20T03:00:00.000Z' });
+    const restarted = new AnalysisArchiveStore({ filePath });
+    await expect(restarted.getFirstDeepAnalysis('project-a')).resolves.toEqual(deep);
+    await expect(restarted.getFirstDeepAnalysis('project-b')).resolves.toBeNull();
+    await expect(restarted.getFirstAnalysis('project-a')).resolves.toEqual(analysisRecord);
+    await expect(restarted.listAnalysisTrackerEntries()).resolves.toEqual([
+      ['project-a', { discussionChatId: '-1002', analysisMessageId: 20 }]
+    ]);
+  });
+
+  it('rejects incomplete deep records instead of treating them as completed projects', async () => {
+    const store = new AnalysisArchiveStore({ filePath: await tempPath() });
+    await expect(store.upsert({ ...analysisRecord, recordType: 'deep', analysisText: undefined } as unknown as AnalysisArchiveRecord))
+      .rejects.toThrow('Invalid analysis archive record');
+    await expect(store.getFirstDeepAnalysis('project-a')).resolves.toBeNull();
+  });
 });

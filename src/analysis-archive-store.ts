@@ -42,7 +42,15 @@ export interface AnalysisArchiveHitRecord {
   reminderMessage?: AnalysisArchiveMessageRef;
 }
 
-export type AnalysisArchiveRecord = AnalysisArchiveAnalysisRecord | AnalysisArchiveHitRecord;
+/** 5 星触发的一次性深度投研归档，结构同 analysis，recordType 区分。 */
+export type AnalysisArchiveDeepRecord = Omit<AnalysisArchiveAnalysisRecord, 'recordType'> & {
+  recordType: 'deep';
+};
+
+export type AnalysisArchiveRecord =
+  | AnalysisArchiveAnalysisRecord
+  | AnalysisArchiveHitRecord
+  | AnalysisArchiveDeepRecord;
 
 export interface AnalysisArchiveStoreOptions {
   filePath: string;
@@ -80,6 +88,13 @@ export class AnalysisArchiveStore {
 
   async getFirstAnalysis(projectKey: string): Promise<AnalysisArchiveAnalysisRecord | null> {
     const records = await this.listAnalysisRecords();
+    return records.find((record) => record.projectKey === projectKey) ?? null;
+  }
+
+  async getFirstDeepAnalysis(projectKey: string): Promise<AnalysisArchiveDeepRecord | null> {
+    const records = (await this.listAll())
+      .filter((record): record is AnalysisArchiveDeepRecord => record.recordType === 'deep')
+      .sort((a, b) => compareAnalysisRecords(a, b));
     return records.find((record) => record.projectKey === projectKey) ?? null;
   }
 
@@ -149,8 +164,8 @@ export class AnalysisArchiveStore {
   private async upsertLocked(record: AnalysisArchiveRecord): Promise<void> {
     const lines = await this.readArchiveLines({ warnInvalid: false });
     const nextLines = lines.filter((line) => {
-      // sourceTaskKey is the idempotency key across both record types; a later
-      // analysis or hit replaces any earlier record with the same key.
+      // sourceTaskKey is the idempotency key across record types.
+      // Deep tasks use a separate key so they cannot replace standard analysis or hits.
       return line.type !== 'record' || line.record.sourceTaskKey !== record.sourceTaskKey;
     });
     nextLines.push({ type: 'record', record });
@@ -168,7 +183,10 @@ export class AnalysisArchiveStore {
   }
 }
 
-function compareAnalysisRecords(a: AnalysisArchiveAnalysisRecord, b: AnalysisArchiveAnalysisRecord): number {
+function compareAnalysisRecords(
+  a: Pick<AnalysisArchiveRecord, 'mainPushedAt' | 'sourceTaskKey'>,
+  b: Pick<AnalysisArchiveRecord, 'mainPushedAt' | 'sourceTaskKey'>
+): number {
   const byMainPushedAt = a.mainPushedAt.localeCompare(b.mainPushedAt);
   if (byMainPushedAt !== 0) {
     return byMainPushedAt;
@@ -183,6 +201,10 @@ function isAnalysisArchiveRecord(value: unknown): value is AnalysisArchiveRecord
 
   if (value.recordType === 'analysis') {
     return isAnalysisArchiveAnalysisRecord(value);
+  }
+
+  if (value.recordType === 'deep') {
+    return isAnalysisArchiveDeepRecord(value);
   }
 
   if (value.recordType === 'hit') {
@@ -200,6 +222,16 @@ function isAnalysisArchiveAnalysisRecord(value: unknown): value is AnalysisArchi
   return (
     hasCommonFields(value) &&
     value.recordType === 'analysis' &&
+    typeof value.analysisCreatedAt === 'string' &&
+    typeof value.analysisText === 'string'
+  );
+}
+
+function isAnalysisArchiveDeepRecord(value: unknown): value is AnalysisArchiveDeepRecord {
+  return (
+    isRecordObject(value) &&
+    value.recordType === 'deep' &&
+    hasCommonFields(value) &&
     typeof value.analysisCreatedAt === 'string' &&
     typeof value.analysisText === 'string'
   );

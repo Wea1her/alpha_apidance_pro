@@ -68,7 +68,7 @@ export function buildAnalysisExport(
   const toMs = range.to.getTime();
 
   for (const record of records) {
-    if (!analysesByProject.has(record.projectKey)) {
+    if (record.recordType === 'deep' || !analysesByProject.has(record.projectKey)) {
       continue;
     }
     const pushedAt = parseMainPushedAtMs(record);

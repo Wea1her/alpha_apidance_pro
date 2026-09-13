@@ -14,9 +14,10 @@
 - 过滤 KOL、个人账号、个人开发者/dev 账号、媒体属性账号。
 - 只把项目、Alpha、未知但可能有价值的账号推送到 Telegram 频道。
 - 同一项目 1-4 星只在星级升高时重复推送，5 星项目后续继续推送。
-- 首次有效项目会在关联讨论群中生成 Grok 分析。
-- 重复项目不重复调用 Grok 分析，而是回复第一次分析消息做提醒。
-- 使用 6551 查询删帖历史、近期推文、负面提及和评论区负面样本，辅助判断 Rug 风险。
+- 首次有效项目会在关联讨论群中使用 `grok-4.3` 生成标准分析。
+- 重复项目沿用第一次标准分析并回复提醒；首次达到 5 星时可额外生成一份深度投研。
+- 深度投研通过 fengshao 的 `grok-4.20-multi-agent-0309` 独立渠道生成，每个项目一份，回复在首次 5 星频道消息对应的讨论群线程下。
+- Grok 分析时通过 xAI 的 web_search / x_search 联网检索账号背景和背书账号。
 - 支持 WebSocket 断线重连、heartbeat 超时重连、登录失败重试。
 
 ## 运行环境
@@ -26,7 +27,7 @@
 ```text
 Node.js 20 或 22
 npm
-可访问 Alpha、Telegram、Grok API、6551 API 的网络环境
+可访问 Alpha、Telegram、Grok API 的网络环境
 ```
 
 服务器 24 小时运行建议：
@@ -105,17 +106,21 @@ PROXY_URL=
 
 XAI_API_KEY=
 XAI_BASE_URL=https://api.x.ai
-XAI_MODEL=grok-4.20-fast
+XAI_MODEL=grok-4.3
 XAI_RETRY_ATTEMPTS=5
 XAI_RETRY_MIN_DELAY_MS=1000
 XAI_RETRY_MAX_DELAY_MS=20000
 XAI_MAX_TOKENS=2048
+XAI_SEARCH_TOOLS=web_search,x_search
 
-TWITTER_TOKEN=
-TWITTER_API_BASE_URL=https://ai.6551.io
+XAI_DEEP_API_KEY=
+XAI_DEEP_BASE_URL=https://api.fengshao1227.com
+XAI_DEEP_MODEL=grok-4.20-multi-agent-0309
+XAI_DEEP_MAX_TOKENS=4096
+XAI_DEEP_SEARCH_TOOLS=web_search
 ```
 
-不要提交 `.env`，也不要泄露钱包私钥、Telegram Bot Token、Grok Key、6551 Token。
+不要提交 `.env`，也不要泄露钱包私钥、Telegram Bot Token、Grok Key。
 
 ## 配置说明
 
@@ -165,13 +170,19 @@ TWITTER_API_BASE_URL=https://ai.6551.io
 
 `PROXY_URL` 是代理地址。服务器没有代理时留空；如果服务器本机跑 Clash，可以填 `http://127.0.0.1:7890`。
 
-`XAI_API_KEY`、`XAI_BASE_URL`、`XAI_MODEL` 用于 Grok 账号分类和投研分析。
+`XAI_API_KEY`、`XAI_BASE_URL`、`XAI_MODEL` 用于账号分类和标准投研分析。当前配置为 `XAI_MODEL=grok-4.3`，深度渠道的配置不会覆盖它。
 
 `XAI_RETRY_ATTEMPTS`、`XAI_RETRY_MIN_DELAY_MS`、`XAI_RETRY_MAX_DELAY_MS` 控制 Grok 账号分类和分析的短重试。空回复、网络错误、429 和 5xx 会重试；默认 5 次，1 秒起步，最高 20 秒。
 
 `XAI_MAX_TOKENS` 控制 Grok 单次回复 token 预算，默认 2048。若分析经常被截断可适当调高；若只是偶发 `completion_tokens=0`，优先调高重试次数。
 
-`TWITTER_TOKEN`、`TWITTER_API_BASE_URL` 用于 6551 Rug 历史证据查询。
+`XAI_SEARCH_TOOLS` 控制 Grok 投研分析时启用的 xAI 服务端联网检索工具，逗号分隔，只接受 `web_search` 和 `x_search`。未设置或留空时默认 `web_search,x_search`；填 `none` 关闭联网检索。启用后分析请求走 xAI Responses API，检索按 xAI 的来源计费；账号分类不使用检索。如果 `XAI_BASE_URL` 指向的中转站不支持 Responses API，服务会记录警告并自动退回普通 Grok 请求；如果中转站接受了请求但上游没有真正执行检索（响应里 `num_server_side_tools_used=0`），服务也会记录警告，此时第 2 节的背书信息并未经过检索。
+
+`XAI_DEEP_API_KEY` 是 fengshao 渠道的独立 API Key。留空时关闭深度投研，不影响标准分析；已入队的深度任务会保留，重新配置并启动服务后继续处理。
+
+`XAI_DEEP_BASE_URL` 默认 `https://api.fengshao1227.com`，`XAI_DEEP_MODEL` 默认使用该渠道的具体模型 ID `grok-4.20-multi-agent-0309`。`XAI_DEEP_MAX_TOKENS` 默认 4096，控制深度报告输出预算。
+
+`XAI_DEEP_SEARCH_TOOLS` 默认 `web_search`，留空也采用此默认值；填 `none` 关闭检索。按实际渠道能力配置工具，深度请求使用独立的模型、Key 和地址。其网络代理及短重试参数沿用 `PROXY_URL` 和 `XAI_RETRY_*`。
 
 ## 启动服务
 
@@ -199,6 +210,7 @@ alpha 共同关注推送服务已启动
 8. 过滤 KOL、个人、个人开发者/dev、媒体属性账号。
 9. 推送项目/Alpha/未知类型账号到 Telegram 频道。
 10. 在关联讨论群回复 Grok 分析。
+11. 首次达到 5 星时，通过独立处理循环追加深度投研；长时间的深度请求不会阻塞标准分析队列。
 
 ## 测试监听
 
@@ -264,7 +276,7 @@ B 后续仍是 5 星：继续推送，显示第 6 次推送，并带首次推送
 检测到项目星级变化：1星 → 2星
 ```
 
-注意：项目级星级、推送次数和首次频道消息记录目前保存在服务进程内存中。服务重启后，这些内存状态会清空，重启后的首次命中会重新按首次项目处理。
+项目星级、推送次数和首次频道消息记录通过 `PROJECT_STATE_PATH` 持久化。标准分析从 `ANALYSIS_ARCHIVE_PATH` 恢复；深度任务与发送进度从 `ANALYSIS_QUEUE_PATH` 恢复，已完成的深度报告从归档恢复去重。
 
 ## 推送格式
 
@@ -328,7 +340,7 @@ Meme Degen、memer、speculator、trader 这类明显是个人投机/喊单身�
 
 分析由 `analysis-skills/project-alpha.md` 控制。修改这个文件后，重启服务即可生效。
 
-分析默认输出 8 个章节：
+分析默认输出 7 个章节：
 
 ```text
 1. 项目核心信息
@@ -338,22 +350,46 @@ Meme Degen、memer、speculator、trader 这类明显是个人投机/喊单身�
 5. 缺点
 6. 关注理由
 7. 标签
-8. Rug 历史/风险
 ```
 
-每个章节标题单独一行，正文在下一行输出。分析不会输出 Markdown 加粗星号，也不会在末尾输出 Source、来源、参考来源或引用列表。
+每个章节标题单独一行，正文在下一行输出。分析不会输出 Markdown 加粗星号，也不会在末尾输出 Source、来源、参考来源或引用列表；检索产生的 `[1]`、`【1】` 之类引用标记会在发送前清理。
+
+## 首次 5 星深度投研
+
+配置 `XAI_DEEP_API_KEY` 和频道关联讨论群后，项目首次以 5 星或以上成功推送时，会追加一条独立的深度任务。首次发现就达到 5 星，以及从 1–4 星升到 5 星，都会触发。同项目后续 5 星命中只沿用已有任务或报告，不会改换回复目标，也不会重新生成已保存的深度报告。
+
+标准分析继续使用 `grok-4.3`，账号分类、首次七章分析和重复提醒逻辑保持原样。深度报告使用 fengshao 的 `grok-4.20-multi-agent-0309`；如果该项目已有标准分析归档，会将其作为深化和校正的上下文，没有标准归档时也可以独立执行。
+
+深度报告固定回复在**触发该任务的首次 5 星频道消息**所对应的讨论群根消息下，消息标题为“Grok 深度分析”。长报告分成多条，每条均回复同一根消息，并显示分片序号。若标准分析早于 5 星生成，原来的标准分析和重复提醒仍留在原线程。
+
+默认深度模板输出六个章节：
+
+```text
+1. 项目定位与玩法
+2. 当前热度
+3. 背书与合作关系
+4. 风险
+5. 机遇
+6. 结论
+```
+
+可以新建 `analysis-skills/project-deep.md` 自定义深度模板；缺少该文件时使用内置模板，不影响 `project-alpha.md` 的标准模板。深度报告保留来源裸链接，只清理加粗、斜体和数字引用标记。默认通过 `web_search` 检索官网、文档及公开推文证据，不能直接证明 X 内部关注关系；没有证据时必须明确说明。若渠道不支持检索，请求会记录警告并降级，同时明确告知模型本次未启用联网检索。
+
+深度任务使用 `kind: "deep"` 与标准任务区分，并保存首次 5 星频道消息引用。模型返回后先保存报告和分片，再发送 Telegram；每片成功后保存发送进度。任务重试和服务重启会复用已保存的报告，仅补发未记录成功的分片。全部发送完成后，以 `recordType: "deep"` 写入分析归档，标准分析的归档与重复提醒目标保持独立。现有导出仍使用标准分析与命中记录，深度归档不会被重复计为新的命中。
+
+深度任务沿用 `ANALYSIS_QUEUE_*` 补偿与死信配置。进入死信队列的项目不会因后续 5 星命中自动创建新任务；排查后应恢复原任务及发送进度。保留队列、死信、归档和讨论群映射文件，才能在重启后继续去重和补发。
 
 ## 项目背景/背书账号
 
-首次 Grok 分析会使用 6551 的 `twitter_kol_followers` 查询目标 X 账号被哪些知名账号关注，并把最多 30 个候选账号注入 Grok 输入。Grok 会在 `2. 项目背景/背书账号` 中从候选池里选最多 10 个账号输出，优先展示项目方、协议官方、产品官方、交易所、VC、基金、生态官方、公链、Foundation、Labs；这些不足时再补充知名 Crypto KOL、媒体或社区号。
+首次 Grok 分析会启用 `XAI_SEARCH_TOOLS` 配置的 xAI 服务端检索工具：用 `x_search` 检索目标 X 账号被哪些知名项目方、交易所、VC/基金、生态官方关注、互动、转发或联合公告，用 `web_search` 检索官网、融资、合作和媒体报道。Grok 会在 `2. 项目背景/背书账号` 中只列出确实检索到的账号，最多 10 个，并说明检索依据；优先展示项目方、协议官方、产品官方、交易所、VC、基金、生态官方、公链、Foundation、Labs，这些不足时再补充知名 Crypto KOL、媒体或社区号。
 
-该功能复用 `TWITTER_TOKEN`、`TWITTER_API_BASE_URL` 和 `PROXY_URL`。如果没有配置 `TWITTER_TOKEN`，或者 6551 查询失败，主推送和 Grok 分析不会中断；第 2 节会说明“无法确认知名 Crypto 背书账号”，不能据此推断存在背书。
+如果 `XAI_SEARCH_TOOLS=none`，或者中转站不支持 Responses API 导致退回普通请求，第 2 节会说明“无法确认知名 Crypto 背书账号”，不能据此推断存在背书。
 
 ## 重复项目分析规则
 
 同一项目首次通过分类并推送后，会调用 Grok 生成完整分析。
 
-同一项目后续再次升星推送时，不再重复调用 Grok 分析，而是在第一次分析消息下回复提醒。
+同一项目后续再次升星推送时，不再重复调用标准 Grok 分析，而是在第一次分析消息下回复提醒。首次 5 星深度投研按上文规则独立追加。
 
 提醒格式：
 
@@ -386,37 +422,6 @@ A 关注了 B
 时间按 `Asia/Shanghai` 解释，结束小时包含完整一小时。导出只包含已经完成 Grok 分析的项目；没有分析正文的推送不会出现在文档里。
 
 导出文档会按时间段内项目最高星级分组，同一星级下按最高监控池关注数从高到低排序。多个 5 星项目会并列显示在同一个 `5 星项目` 分组下。
-
-## Rug 历史分析
-
-首次项目分析前，服务会通过 6551 查询目标 X 账号的历史风险证据。
-
-当前会查询：
-
-```text
-twitter_user_info：账号基础信息
-twitter_deleted_tweets：删帖历史
-twitter_user_tweets：近期推文
-twitter_quote_tweets_by_id：近期推文引用评论
-twitter_search：负面提及、回复和评论区负面样本
-```
-
-重点关注：
-
-```text
-删帖数量
-删帖频率
-合约相关删帖原文
-近期高风险关键词
-负面提及数量
-评论区负面样本
-类似项目结局
-跑路、骗局、钓鱼、无法提现等风险信号
-```
-
-删帖历史会最多查询 100 条。若删帖原文包含 `CA`、`contract`、`合约`、`代币地址`、`0x...` 或类似合约地址特征，服务会最多提取 3 条原文进入 Grok 输入，并要求模型放在 `Rug 历史/风险` 分析的最后。
-
-如果没有配置 `TWITTER_TOKEN`，或者 6551 查询失败，服务仍会正常推送和分析。Grok 会收到“证据缺失或查询失败”的上下文，而不是直接中断服务。
 
 ## 关联讨论群要求
 
@@ -480,7 +485,7 @@ pm2 restart daxinjiankong
 
 ## 代理说明
 
-如果服务器网络能直连 Alpha、Telegram、Grok、6551，`PROXY_URL` 留空即可。
+如果服务器网络能直连 Alpha、Telegram、Grok，`PROXY_URL` 留空即可。
 
 如果服务器本机运行 Clash，通常配置：
 
@@ -517,7 +522,7 @@ Grok 空回复会按可重试错误处理，并在日志里记录 completion_tok
 事件级重复消息去重
 项目级升星重复推送
 账号分类失败时保守推送
-6551 查询失败不阻塞主推送
+xAI 联网检索工具不可用时退回普通 Grok 请求，不阻塞分析
 Grok 分析失败不影响后续 WebSocket 监听
 ```
 
@@ -541,6 +546,6 @@ npm run typecheck
 
 - `.env` 不要提交到 GitHub。
 - 钱包私钥只建议使用专门为 Alpha 白名单准备的钱包，不要使用存放资金的钱包。
-- Telegram Bot Token、Grok API Key、6551 Token 泄露后需要立即吊销并更换。
+- Telegram Bot Token、Grok API Key 泄露后需要立即吊销并更换。
 - 项目级星级状态保存在 `PROJECT_STATE_PATH`，服务重启后会恢复。
 - 修改 `analysis-skills/project-alpha.md` 后需要重启服务才能加载新分析规则。

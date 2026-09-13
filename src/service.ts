@@ -21,7 +21,11 @@ import {
 import { classifyAccount, shouldAllowClassifiedAccount } from './account-classifier.js';
 import { buildCommonFollowDecision } from './common-follow-rules.js';
 import type { ServiceConfig } from './config.js';
-import { triggerAnalysisComment, type TriggerAnalysisResult } from './analysis-service.js';
+import {
+  triggerAnalysisComment,
+  type TriggerAnalysisResult
+} from './analysis-service.js';
+import { enqueueDeepAnalysisTask, processDeepAnalysisTask } from './deep-analysis-task.js';
 import { AnalysisArchiveStore } from './analysis-archive-store.js';
 import {
   buildAnalysisExport,
@@ -673,7 +677,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       projectFirstChannelMessages.set(projectKey, sendResult);
     }
 
-    if (!options.config.xaiApiKey || !options.config.discussionChatId) {
+    if (!options.config.discussionChatId) {
       return;
     }
     const link = messageString(message, 'link');
@@ -689,8 +693,13 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       count,
       star
     };
-    await analysisQueue.enqueue(task);
-    info(`主推送成功，已写入分析补偿队列：taskKey=${task.taskKey}`);
+    if (options.config.xaiApiKey) {
+      await analysisQueue.enqueue(task);
+      info(`主推送成功，已写入分析补偿队列：taskKey=${task.taskKey}`);
+    }
+    if (await enqueueDeepAnalysisTask({ task, config: options.config, queue: analysisQueue, archiveStore: analysisArchive })) {
+      info(`项目首次达到 5 星，已入队深度投研：project=${projectKey}`);
+    }
   };
 
   const processAnalysisTask = async (
@@ -716,8 +725,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
       xaiRetryMinDelayMs: options.config.xaiRetryMinDelayMs,
       xaiRetryMaxDelayMs: options.config.xaiRetryMaxDelayMs,
       xaiMaxTokens: options.config.xaiMaxTokens,
-      twitterToken: options.config.twitterToken,
-      twitterApiBaseUrl: options.config.twitterApiBaseUrl,
+      xaiSearchTools: options.config.xaiSearchTools,
       proxyUrl: options.config.proxyUrl,
       discussionChatId: options.config.discussionChatId,
       telegramRetryAttempts: options.config.telegramRetryAttempts,
@@ -777,11 +785,30 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
   });
   const stopAnalysisRetryWorker = startAnalysisRetryWorker({
     queue: analysisQueue,
+    kind: 'standard',
     intervalMs: options.config.analysisQueueRetryIntervalMs,
     process: processAnalysisTask,
     info,
     warn
   });
+  const stopDeepAnalysisRetryWorker = options.config.deepAnalysis && options.config.discussionChatId
+    ? startAnalysisRetryWorker({
+        queue: analysisQueue,
+        kind: 'deep',
+        intervalMs: options.config.analysisQueueRetryIntervalMs,
+        process: (task) => processDeepAnalysisTask({
+          task,
+          config: options.config,
+          queue: analysisQueue,
+          archiveStore: analysisArchive,
+          discussionStore,
+          info,
+          warn
+        }),
+        info,
+        warn
+      })
+    : () => {};
 
   const processRawAlphaEvent = (raw: string, receivedAt: Date): Promise<void> =>
     processAlphaMessage({
@@ -957,6 +984,7 @@ export async function startAlphaService(options: StartAlphaServiceOptions): Prom
     stopDiscussionPoller();
     stopFailedRetryWorker();
     stopAnalysisRetryWorker();
+    stopDeepAnalysisRetryWorker();
     clearHeartbeatTimer();
     clearBusinessSilenceTimer();
     if (reconnectTimer) clearTimeout(reconnectTimer);
