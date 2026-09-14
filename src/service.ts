@@ -71,6 +71,37 @@ export interface ChannelMessageReference {
   messageId: number;
 }
 
+/**
+ * 决策回调（影子期专用，Q32、Q38）。
+ *
+ * 旧 worker 在判定链的每个分支调用它，把“为什么推/为什么没推”的真实证据交给旁路 sink；
+ * 回调是**可选**的——不传时旧行为完全不变（回归基线不受影响）。
+ * 回调抛错一律被吞掉并降级为告警：排查通道不允许影响业务链路。
+ */
+export interface LegacyDecisionEvent {
+  /** 与 reasonCode 全集对齐的判定结果。 */
+  reasonCode: string;
+  raw: string;
+  receivedAt: string;
+  /** 归一化项目键；解析失败等分支为 null。 */
+  projectKey: string | null;
+  /** 旧实现的去重键原文。 */
+  dedupeKey: string | null;
+  star: number | null;
+  previousStar: number | null;
+  count: number | null;
+  classification?: {
+    type: string | null;
+    confidence: number | null;
+    reason: string | null;
+    error: string | null;
+  } | null;
+  /** 调试补充信息；不得包含凭证。 */
+  detail?: Record<string, unknown>;
+}
+
+export type LegacyDecisionSink = (event: LegacyDecisionEvent) => void | Promise<void>;
+
 export interface ProcessAlphaMessageOptions {
   raw: string;
   receivedAt: Date;
@@ -95,6 +126,8 @@ export interface ProcessAlphaMessageOptions {
     mainPushedAt: Date
   ) => Promise<void>;
   enqueueFailedMainPush?: (record: FailedMainPushInput) => Promise<void>;
+  /** 影子期决策回调；不传时行为不变。 */
+  onDecision?: LegacyDecisionSink;
   persistProjectState?: () => Promise<void>;
   info?: (message: string) => void;
   warn?: (message: string) => void;
@@ -224,38 +257,55 @@ function buildForwardMessage(
 export async function processAlphaMessage(options: ProcessAlphaMessageOptions): Promise<void> {
   const info = options.info ?? console.info;
   const warn = options.warn ?? console.warn;
+  // 排查通道不允许影响业务：回调异常只记告警。
+  const emitDecision = (event: LegacyDecisionEvent): void => {
+    if (!options.onDecision) return;
+    try {
+      void Promise.resolve(options.onDecision(event)).catch((error) => {
+        warn(`决策回调失败（不影响业务）：${formatErrorMessage(error)}`);
+      });
+    } catch (error) {
+      warn(`决策回调失败（不影响业务）：${formatErrorMessage(error)}`);
+    }
+  };
   let message: Record<string, unknown>;
   try {
     message = parseAlphaMessage(options.raw);
   } catch (error) {
     warn(`无法解析 alpha 消息：${error instanceof Error ? error.message : String(error)}`);
+    emitDecision({ reasonCode: 'PARSE_ERROR', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey: null, dedupeKey: null, star: null, previousStar: null, count: null, detail: { error: formatErrorMessage(error) } });
     return;
   }
 
   if (isAlphaHeartbeat(message)) {
     info(`[heartbeat] ${options.receivedAt.toISOString()}`);
+    emitDecision({ reasonCode: 'HEARTBEAT', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey: null, dedupeKey: null, star: null, previousStar: null, count: null });
     return;
   }
 
   const count = extractCommonFollowCount(message);
   if (count === null) {
     warn(`未识别共同关注数量，跳过推送：${options.raw}`);
+    emitDecision({ reasonCode: 'COUNT_MISSING', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey: buildProjectKey(message), dedupeKey: buildDedupeKey(message), star: null, previousStar: null, count: null });
     return;
   }
 
   const decision = buildCommonFollowDecision(count, options.commonFollowStarLevels);
   if (!decision.shouldPush) {
     info(`未达到推送阈值：count=${count}`);
+    emitDecision({ reasonCode: 'BELOW_THRESHOLD', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey: buildProjectKey(message), dedupeKey: buildDedupeKey(message), star: 0, previousStar: options.projectStars?.get(buildProjectKey(message)) ?? null, count });
     return;
   }
 
   const dedupeKey = buildDedupeKey(message);
   if (options.dedupe.has(dedupeKey)) {
     info(`重复事件已跳过：${dedupeKey}`);
+    emitDecision({ reasonCode: 'DEDUPE_REPEAT', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey: buildProjectKey(message), dedupeKey, star: decision.star, previousStar: options.projectStars?.get(buildProjectKey(message)) ?? null, count });
     return;
   }
   if (options.inFlight?.has(dedupeKey)) {
     info(`事件正在处理中，跳过重复并发：${dedupeKey}`);
+    emitDecision({ reasonCode: 'IN_FLIGHT', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey: buildProjectKey(message), dedupeKey, star: decision.star, previousStar: options.projectStars?.get(buildProjectKey(message)) ?? null, count });
     return;
   }
   options.inFlight?.add(dedupeKey);
@@ -268,6 +318,7 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
       const isMaxStar = decision.star >= maxStar;
       if (!isMaxStar && previousStar >= decision.star) {
         info(`项目星级未升高，跳过重复推送：project=${projectKey} previous=${previousStar} current=${decision.star}`);
+        emitDecision({ reasonCode: 'STAR_NOT_INCREASED', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey, dedupeKey, star: decision.star, previousStar, count });
         options.dedupe.add(dedupeKey);
         return;
       }
@@ -307,11 +358,14 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
             rollbackReservedPushCount();
             options.dedupe.add(dedupeKey);
             info(`账号分类拦截：type=${classification.type}${reason}`);
+            emitDecision({ reasonCode: 'CLASSIFY_BLOCKED', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey, dedupeKey, star: decision.star, previousStar, count, classification: { type: classification.type, confidence: null, reason: classification.reason ?? null, error: null } });
             return;
           }
           info(`账号分类允许：type=${classification.type}${reason}`);
+          emitDecision({ reasonCode: 'CLASSIFY_ALLOWED', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey, dedupeKey, star: decision.star, previousStar, count, classification: { type: classification.type, confidence: null, reason: classification.reason ?? null, error: null } });
         } catch (error) {
           warn(`账号分类失败，按保守策略推送：${error instanceof Error ? error.message : String(error)}`);
+          emitDecision({ reasonCode: 'CLASSIFY_ERROR_ALLOWED', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey, dedupeKey, star: decision.star, previousStar, count, classification: { type: null, confidence: null, reason: null, error: formatErrorMessage(error) } });
         }
       }
 
@@ -342,6 +396,7 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
             sendResult?.messageId ?? 'unknown'
           }`
         );
+        emitDecision({ reasonCode: 'PUSHED', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey, dedupeKey, star: decision.star, previousStar, count, detail: { chatId: sendResult?.chatId ?? null, messageId: sendResult?.messageId ?? null, pushCount } });
       } catch (error) {
         let queuedFailedPush = false;
         if (options.projectStars && !isMaxStar) {
@@ -366,6 +421,7 @@ export async function processAlphaMessage(options: ProcessAlphaMessageOptions): 
         if (!queuedFailedPush) {
           rollbackReservedPushCount();
         }
+        emitDecision({ reasonCode: 'SEND_FAILED', raw: options.raw, receivedAt: options.receivedAt.toISOString(), projectKey, dedupeKey, star: decision.star, previousStar, count, detail: { error: formatErrorMessage(error), pushCount } });
         throw error;
       }
 

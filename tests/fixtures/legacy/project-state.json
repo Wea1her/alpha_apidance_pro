@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "projects": {
+    "berauniversity": {
+      "star": 1,
+      "pushCount": 1,
+      "firstChannelMessage": {
+        "messageId": 5621,
+        "chatId": -1003903535780
+      },
+      "updatedAt": "2026-09-13T07:23:42.473Z"
+    },
+    "getstonkoptions": {
+      "star": 2,
+      "pushCount": 2,
+      "firstChannelMessage": {
+        "messageId": 5620,
+        "chatId": -1003903535780
+      },
+      "updatedAt": "2026-09-13T07:23:42.473Z"
+    },
+    "boopfamily": {
+      "star": 1,
+      "pushCount": 1,
+      "firstChannelMessage": {
+        "messageId": 5623,
+        "chatId": -1003903535780
+      },
+      "updatedAt": "2026-09-13T07:23:42.473Z"
+    }
+  }
+}

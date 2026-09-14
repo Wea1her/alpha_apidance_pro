@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * 主题令牌：浅/深两套（对齐参照站，见 docs/architecture/reference-alpha-portal.md）。
+ * 组件只使用 Tailwind 里映射到这些变量的颜色，因此主题切换不需要改组件。
+ * `--alert` 用于说明“异常/不确定”，与“未达门槛”的中性表达区分开。
+ */
+:root {
+  --bg: #eef2f5;
+  --surface: #ffffff;
+  --surface-soft: #f7f9fb;
+  --ink: #17202a;
+  --muted: #6d7781;
+  --line: #d9e0e7;
+  --accent: #0d8f75;
+  --accent-soft: #e0f4ef;
+  --discover: #3973d6;
+  --discover-soft: #eaf1fc;
+  --alert: #b4453a;
+  --alert-soft: #fbeceb;
+}
+
+html[data-theme='dark'] {
+  --bg: #10161b;
+  --surface: #192127;
+  --surface-soft: #212a31;
+  --ink: #e7edf2;
+  --muted: #9aa6b0;
+  --line: #35414a;
+  --accent: #48c5a7;
+  --accent-soft: #173b34;
+  --discover: #79a9ff;
+  --discover-soft: #1d304c;
+  --alert: #ff9c8f;
+  --alert-soft: #3a2320;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-feature-settings: 'tnum';
+}
+
+/* 长列表用固定行高，避免滚动时抖动（Q98 的桌面信息密度）。 */
+.row-compact {
+  line-height: 1.35;
+}
+
+/*
+ * 长列表渲染优化：滚动加载会把项目池累积到成百上千行，
+ * content-visibility: auto 让浏览器跳过视口外行的布局与绘制；
+ * contain-intrinsic-size 提供占位高度，避免滚动条跳动。
+ */
+.row-lazy {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 68px;
+}
+
+/*
+ * 键盘可达性：此前只有输入框有焦点反馈（边框变色），按钮/链接被浏览器默认外框或干脆不可见。
+ * 统一给所有可交互元素一个清晰的焦点环，键盘用户才看得出"现在在哪"。
+ */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* 遵循系统的减少动效偏好（前庭敏感用户）。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

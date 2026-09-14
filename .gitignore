@@ -10,3 +10,4 @@ data/
 .claude/
 .workbuddy/
 .vscode/
+.env.test
