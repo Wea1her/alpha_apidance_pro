@@ -8,3 +8,5 @@ data/
 .worktrees/
 .omx/
 .claude/
+.workbuddy/
+.vscode/
